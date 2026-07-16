@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Niche Finder</title>
+  <style>
+    :root {
+      --bg: #0f0f12; --side: #16161b; --card: #1a1a20; --card2: #202028;
+      --border: #2a2a30; --text: #e8e8ea; --muted: #8a8a92;
+      --accent: #60a5fa; --green: #4ade80; --amber: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+    .app { display: flex; min-height: 100vh; }
+
+    .side { width: 190px; flex-shrink: 0; background: var(--side); border-right: 1px solid var(--border); padding: 18px 12px; }
+    .logo { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 24px; padding: 0 8px; }
+    .logo-dot { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); display: inline-block; }
+    .nav a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 0.9rem; margin-bottom: 3px; }
+    .nav a.active { background: rgba(96,165,250,0.15); color: var(--accent); }
+    .nav a:hover:not(.active) { background: var(--card); color: var(--text); }
+
+    .main { flex: 1; min-width: 0; padding: 22px 26px; }
+    .searchbar { display: flex; gap: 8px; margin-bottom: 20px; }
+    .searchbar input { flex: 1; background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 8px; font-size: 0.9rem; }
+    .searchbar button { background: var(--accent); color: #0a0a0a; border: none; padding: 0 18px; border-radius: 8px; font-weight: 500; cursor: pointer; font-size: 0.9rem; }
+
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+    .stat { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+    .stat .lbl { font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; }
+    .stat .val { font-size: 1.35rem; font-weight: 600; }
+
+    .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 18px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 20px; }
+    .filter .flbl { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); margin-bottom: 8px; }
+    .filter .flbl b { color: var(--text); font-weight: 500; }
+    .filter input[type=range] { width: 100%; accent-color: var(--accent); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    thead th { text-align: left; color: var(--muted); font-weight: 500; padding: 10px; border-bottom: 1px solid var(--border); }
+    th.num, td.num { text-align: right; }
+    tbody td { padding: 9px 10px; border-bottom: 1px solid #17171c; vertical-align: middle; }
+    tbody tr.main:hover td { background: var(--card); }
+    .thumb { width: 90px; height: 51px; object-fit: cover; border-radius: 5px; display: block; background: var(--card2); }
+    .title a { color: var(--accent); text-decoration: none; }
+    .title a:hover { text-decoration: underline; }
+    .chan { color: var(--muted); font-size: 0.76rem; margin-top: 3px; }
+    .ratio { color: var(--green); font-weight: 600; }
+    .ratio.mid { color: var(--amber); }
+    .descbtn { background: none; border: 1px solid var(--border); color: var(--muted); cursor: pointer; border-radius: 6px; padding: 4px 8px; font-size: 0.8rem; }
+    .descbtn:hover { color: var(--text); border-color: var(--muted); }
+    tr.desc td { background: #131318; color: var(--muted); font-size: 0.82rem; line-height: 1.6; white-space: pre-wrap; padding: 14px 16px; }
+    tr.hidden { display: none; }
+    .empty { color: var(--muted); padding: 30px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="logo"><span class="logo-dot"></span> Niche Finder</div>
+      <nav class="nav">
+        <a href="#" class="active">🔍 Recherche</a>
+        <a href="#">🔥 Niches</a>
+        <a href="#">🕑 Historique</a>
+        <a href="#">⚙️ Réglages</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <div class="searchbar">
+        <input type="text" id="kw" placeholder="Mot-clé à rechercher…">
+        <button id="scanBtn">Rechercher</button>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="lbl">Résultats</div><div class="val" id="s-count">—</div></div>
+        <div class="stat"><div class="lbl">Ratio médian</div><div class="val" id="s-ratio" style="color:var(--green)">—</div></div>
+        <div class="stat"><div class="lbl">Chaînes distinctes</div><div class="val" id="s-chan">—</div></div>
+        <div class="stat"><div class="lbl">Quota du jour</div><div class="val" id="s-quota">—</div></div>
+      </div>
+
+      <div class="filters">
+        <div class="filter">
+          <div class="flbl">Durée min <b id="v-dur">1:00</b></div>
+          <input type="range" id="f-dur" min="0" max="1200" value="60" step="15">
+        </div>
+        <div class="filter">
+          <div class="flbl">Vues min <b id="v-views">0</b></div>
+          <input type="range" id="f-views" min="0" max="1000000" value="0" step="10000">
+        </div>
+        <div class="filter">
+          <div class="flbl">Abonnés max <b id="v-subs">aucun</b></div>
+          <input type="range" id="f-subs" min="0" max="500000" value="500000" step="5000">
+        </div>
+        <div class="filter">
+          <div class="flbl">Ratio min <b id="v-ratio">0</b></div>
+          <input type="range" id="f-ratio" min="0" max="200" value="0" step="1">
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width:100px"></th>
+            <th class="num" style="width:52px">Score</th>
+            <th>Titre / chaîne</th>
+            <th class="num" style="width:70px">Vues</th>
+            <th class="num" style="width:64px">Abonnés</th>
+            <th class="num" style="width:56px">Ratio</th>
+            <th class="num" style="width:56px">Durée</th>
+            <th style="width:44px"></th>
+          </tr>
+        </thead>
+        <tbody id="rows"><tr><td colspan="7" class="empty">Chargement…</td></tr></tbody>
+      </table>
+    </main>
+  </div>
+
+  <script>
+    let DATA = null;
+
+    function fmt(n) {
+      if (n === null || n === undefined) return "—";
+      if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + "M";
+      if (n >= 1e3) return Math.round(n / 1e3) + "k";
+      return String(n);
+    }
+    function durTxt(s) {
+      const m = Math.floor(s / 60), sec = s % 60;
+      return m + ":" + String(sec).padStart(2, "0");
+    }
+    function esc(t) {
+      const d = document.createElement("div"); d.textContent = t || ""; return d.innerHTML;
+    }
+    function median(arr) {
+      if (!arr.length) return null;
+      const s = [...arr].sort((a, b) => a - b), m = Math.floor(s.length / 2);
+      return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+    }
+    const DAMPING_K = 5000;
+    const WEIGHTS = { ratio: 0.60, fresh: 0.25, density: 0.15 };
+
+    function ampRatio(v) {
+      return v.views / ((v.subscribers ?? 0) + DAMPING_K);
+    }
+    function freshScore(publishedAt) {
+      const days = (Date.now() - new Date(publishedAt)) / 86400000;
+      if (days <= 7) return 100;
+      if (days >= 90) return 10;
+      return Math.round(100 - ((days - 7) / (90 - 7)) * 90);
+    }
+    function computeScores(videos) {
+      const distinctChannels = new Set(videos.map(v => v.channelId)).size;
+      const densityScore = Math.min(100, distinctChannels * 8);
+      return videos.map(v => {
+        const rScore = Math.min(100, Math.round(ampRatio(v)));
+        const fScore = freshScore(v.publishedAt);
+        const score = Math.round(rScore * WEIGHTS.ratio + fScore * WEIGHTS.fresh + densityScore * WEIGHTS.density);
+        return { ...v, score, ampRatioVal: Math.round(ampRatio(v)) };
+      });
+    }
+
+    function readFilters() {
+      const subsRaw = +document.getElementById("f-subs").value;
+      const subsMax = subsRaw >= 500000 ? Infinity : subsRaw;
+      return {
+        dur: +document.getElementById("f-dur").value,
+        views: +document.getElementById("f-views").value,
+        subsMax,
+        ratio: +document.getElementById("f-ratio").value,
+      };
+    }
+
+    function syncLabels() {
+      const f = readFilters();
+      document.getElementById("v-dur").textContent = durTxt(f.dur);
+      document.getElementById("v-views").textContent = fmt(f.views);
+      document.getElementById("v-subs").textContent = f.subsMax === Infinity ? "aucun" : fmt(f.subsMax);
+      document.getElementById("v-ratio").textContent = f.ratio;
+    }
+
+    function render() {
+      if (!DATA) return;
+      const f = readFilters();
+      syncLabels();
+
+      const vids = computeScores(DATA.videos)
+        .filter(v => v.durationSeconds >= f.dur)
+        .filter(v => v.views >= f.views)
+        .filter(v => (v.subscribers ?? 0) <= f.subsMax)
+        .filter(v => (v.ratio ?? 0) >= f.ratio)
+        .sort((a, b) => b.score - a.score);
+
+      document.getElementById("s-count").textContent = vids.length;
+      const ratios = vids.map(v => v.ratio).filter(r => r != null);
+      document.getElementById("s-ratio").textContent = median(ratios) ?? "—";
+      document.getElementById("s-chan").textContent = new Set(vids.map(v => v.channelId)).size;
+
+      const tbody = document.getElementById("rows");
+      if (!vids.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">Aucune vidéo ne passe ces filtres. Assouplis les curseurs.</td></tr>'; return; }
+
+      tbody.innerHTML = vids.map((v, i) => {
+        const cls = (v.ratio ?? 0) >= 20 ? "ratio" : "ratio mid";
+        const scoreColor = v.score >= 60 ? "var(--green)" : v.score >= 40 ? "var(--amber)" : "var(--muted)";
+        return `
+          <tr class="main">
+            <td><img class="thumb" src="${v.thumbnail}" alt="" loading="lazy"></td>
+            <td class="num"><span style="font-weight:600;font-size:1.05rem;color:${scoreColor}">${v.score}</span></td>
+            <td class="title"><a href="${v.videoUrl}" target="_blank">${esc(v.title)}</a><div class="chan">${esc(v.channelTitle)}</div></td>
+            <td class="num">${fmt(v.views)}</td>
+            <td class="num">${fmt(v.subscribers)}</td>
+            <td class="num ${cls}">${v.ratio ?? "—"}</td>
+            <td class="num">${durTxt(v.durationSeconds)}</td>
+            <td class="num"><button class="descbtn" onclick="toggleDesc(${i})">📄</button></td>
+          </tr>
+          <tr class="desc hidden" id="desc-${i}"><td colspan="7">${esc(v.description) || "(pas de description)"}</td></tr>
+        `;
+      }).join("");
+    }
+
+    function toggleDesc(i) {
+      document.getElementById("desc-" + i).classList.toggle("hidden");
+    }
+
+    ["f-dur", "f-views", "f-subs", "f-ratio"].forEach(id =>
+      document.getElementById(id).addEventListener("input", render)
+    );
+
+    async function doScan() {
+      const kw = document.getElementById("kw").value.trim();
+      if (!kw) { document.getElementById("kw").focus(); return; }
+
+      const btn = document.getElementById("scanBtn");
+      btn.disabled = true;
+      btn.textContent = "Recherche…";
+
+      try {
+        const res = await fetch("/api/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keyword: kw }),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur pendant le scan."); return; }
+        DATA = json;
+        render();
+        loadQuota();
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Rechercher";
+      }
+    }
+
+    async function loadQuota() {
+      try {
+        const res = await fetch("/api/quota");
+        const q = await res.json();
+        document.getElementById("s-quota").textContent = q.used + " / " + q.limit;
+      } catch {}
+    }
+
+    async function load() {
+      const res = await fetch("/api/latest");
+      if (!res.ok) { document.getElementById("rows").innerHTML = '<tr><td colspan="7" class="empty">Aucun scan encore. Tape un mot-clé et lance une recherche.</td></tr>'; loadQuota(); return; }
+      DATA = await res.json();
+      document.getElementById("kw").value = DATA.keyword;
+      render();
+      loadQuota();
+    }
+    load();
+
+    document.getElementById("scanBtn").addEventListener("click", doScan);
+    document.getElementById("kw").addEventListener("keydown", e => { if (e.key === "Enter") doScan(); });
+  </script>
+</body>
+</html>
