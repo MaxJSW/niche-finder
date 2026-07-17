@@ -59,7 +59,8 @@
     <aside class="side">
       <div class="logo"><span class="logo-dot"></span> Niche Finder</div>
       <nav class="nav">
-        <a href="#" class="active">🔍 Recherche</a>
+        <a href="/" class="active">🔍 Recherche</a>
+        <a href="/pins.html">📌 Épinglés</a>
         <a href="#">🔥 Niches</a>
         <a href="#">🕑 Historique</a>
         <a href="#">⚙️ Réglages</a>
@@ -118,6 +119,26 @@
 
   <script>
     let DATA = null;
+
+    let PINNED = new Set();
+
+    async function loadPinnedState() {
+      try {
+        const res = await fetch("/api/pins");
+        const vids = await res.json();
+        PINNED = new Set(vids.map(v => v.video_id));
+      } catch { PINNED = new Set(); }
+    }
+
+    let FOLLOWED = new Set();
+
+    async function loadFollowedState() {
+      try {
+        const res = await fetch("/api/follows");
+        const chans = await res.json();
+        FOLLOWED = new Set(chans.map(c => c.channel_id));
+      } catch { FOLLOWED = new Set(); }
+    }
 
     function fmt(n) {
       if (n === null || n === undefined) return "—";
@@ -206,14 +227,14 @@
           <tr class="main">
             <td><img class="thumb" src="${v.thumbnail}" alt="" loading="lazy"></td>
             <td class="num"><span style="font-weight:600;font-size:1.05rem;color:${scoreColor}">${v.score}</span></td>
-            <td class="title"><a href="${v.videoUrl}" target="_blank">${esc(v.title)}</a><div class="chan">${esc(v.channelTitle)}</div></td>
+            <td class="title"><a href="${v.videoUrl}" target="_blank">${esc(v.title)}</a><div class="chan"><a href="${v.channelUrl}" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">${esc(v.channelTitle)}</a> · <a href="https://socialblade.com/youtube/channel/${v.channelId}" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">SocialBlade</a></div></td>
             <td class="num">${fmt(v.views)}</td>
             <td class="num">${fmt(v.subscribers)}</td>
             <td class="num ${cls}">${v.ratio ?? "—"}</td>
             <td class="num">${durTxt(v.durationSeconds)}</td>
             <td class="num" style="white-space:nowrap">
-              <button class="descbtn" onclick="pinVideo(${i}, this)" title="Épingler cette vidéo">📌</button>
-              <button class="descbtn" onclick="followChannel(${i}, this)" title="Suivre la chaîne">👁️</button>
+              <button class="descbtn" onclick="togglePin('${v.videoId}', this)" title="Épingler / désépingler">${PINNED.has(v.videoId) ? "✅" : "📌"}</button>
+              <button class="descbtn" onclick="toggleFollow('${v.videoId}', this)" title="Suivre / ne plus suivre la chaîne">${FOLLOWED.has(v.channelId) ? "✅" : "👁️"}</button>
               <button class="descbtn" onclick="toggleDesc(${i})" title="Description">📄</button>
             </td>
           </tr>
@@ -226,44 +247,74 @@
       document.getElementById("desc-" + i).classList.toggle("hidden");
     }
 
-    async function pinVideo(i, btn) {
-      const video = DATA.videos[i];
+    async function togglePin(videoId, btn) {
       btn.disabled = true;
+      const isPinned = PINNED.has(videoId);
       try {
-        const res = await fetch("/api/pin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ video, keyword: DATA.keyword }),
-        });
-        const json = await res.json();
-        if (!res.ok) { alert(json.error || "Erreur épinglage."); btn.disabled = false; return; }
-        btn.textContent = "✅";
+        if (isPinned) {
+          // Désépingler (archiver).
+          const res = await fetch("/api/unpin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ videoId }),
+          });
+          if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur"); }
+          PINNED.delete(videoId);
+          btn.textContent = "📌";
+        } else {
+          // Épingler.
+          const video = DATA.videos.find(v => v.videoId === videoId);
+          const res = await fetch("/api/pin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ video, keyword: DATA.keyword }),
+          });
+          if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur"); }
+          PINNED.add(videoId);
+          btn.textContent = "✅";
+        }
       } catch (err) {
-        alert("Erreur réseau : " + err.message);
+        alert(err.message);
+      } finally {
         btn.disabled = false;
       }
     }
 
-    async function followChannel(i, btn) {
-      const v = DATA.videos[i];
-      const channel = {
-        channelId: v.channelId,
-        channelTitle: v.channelTitle,
-        channelUrl: v.channelUrl,
-        subscribers: v.subscribers,
-      };
+    async function toggleFollow(videoId, btn) {
       btn.disabled = true;
+      const v = DATA.videos.find(v => v.videoId === videoId);
+      const isFollowed = FOLLOWED.has(v.channelId);
       try {
-        const res = await fetch("/api/follow", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ channel }),
-        });
-        const json = await res.json();
-        if (!res.ok) { alert(json.error || "Erreur suivi."); btn.disabled = false; return; }
-        btn.textContent = "✅";
+        if (isFollowed) {
+          // Ne plus suivre.
+          const res = await fetch("/api/unfollow", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ channelId: v.channelId }),
+          });
+          if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur"); }
+          FOLLOWED.delete(v.channelId);
+          btn.textContent = "👁️";
+        } else {
+          // Suivre.
+          const channel = {
+            channelId: v.channelId,
+            channelTitle: v.channelTitle,
+            channelUrl: v.channelUrl,
+            subscribers: v.subscribers,
+          };
+          const res = await fetch("/api/follow", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ channel }),
+          });
+          if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur"); }
+          FOLLOWED.add(v.channelId);
+          btn.textContent = "✅";
+        }
       } catch (err) {
-        alert("Erreur réseau : " + err.message);
+        alert(err.message);
+      } finally {
         btn.disabled = false;
       }
     }
@@ -289,6 +340,8 @@
         const json = await res.json();
         if (!res.ok) { alert(json.error || "Erreur pendant le scan."); return; }
         DATA = json;
+        await loadPinnedState();
+        await loadFollowedState();
         render();
         loadQuota();
       } catch (err) {
@@ -312,6 +365,8 @@
       if (!res.ok) { document.getElementById("rows").innerHTML = '<tr><td colspan="7" class="empty">Aucun scan encore. Tape un mot-clé et lance une recherche.</td></tr>'; loadQuota(); return; }
       DATA = await res.json();
       document.getElementById("kw").value = DATA.keyword;
+      await loadPinnedState();
+      await loadFollowedState();
       render();
       loadQuota();
     }

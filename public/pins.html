@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Niche Finder — Épinglés</title>
+  <style>
+    :root {
+      --bg: #0f0f12; --side: #16161b; --card: #1a1a20; --card2: #202028;
+      --border: #2a2a30; --text: #e8e8ea; --muted: #8a8a92;
+      --accent: #60a5fa; --green: #4ade80; --amber: #fbbf24; --red: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+    .app { display: flex; min-height: 100vh; }
+    .side { width: 190px; flex-shrink: 0; background: var(--side); border-right: 1px solid var(--border); padding: 18px 12px; }
+    .logo { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 24px; padding: 0 8px; }
+    .logo-dot { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); display: inline-block; }
+    .nav a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 0.9rem; margin-bottom: 3px; }
+    .nav a.active { background: rgba(96,165,250,0.15); color: var(--accent); }
+    .nav a:hover:not(.active) { background: var(--card); color: var(--text); }
+    .main { flex: 1; min-width: 0; padding: 22px 26px; }
+    h2 { font-size: 1.1rem; margin: 0 0 14px; }
+    h2 .count { color: var(--muted); font-weight: 400; font-size: 0.9rem; }
+    .section { margin-bottom: 34px; }
+    .section.archived { opacity: 0.85; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    thead th { text-align: left; color: var(--muted); font-weight: 500; padding: 10px; border-bottom: 1px solid var(--border); }
+    th.num, td.num { text-align: right; }
+    tbody td { padding: 9px 10px; border-bottom: 1px solid #17171c; vertical-align: middle; }
+    tbody tr:hover td { background: var(--card); }
+    .thumb { width: 90px; height: 51px; object-fit: cover; border-radius: 5px; display: block; background: var(--card2); }
+    .title a { color: var(--accent); text-decoration: none; }
+    .title a:hover { text-decoration: underline; }
+    .chan { color: var(--muted); font-size: 0.76rem; margin-top: 3px; }
+    .ratio { color: var(--green); font-weight: 600; }
+    .ratio.mid { color: var(--amber); }
+    .src { font-size: 0.72rem; padding: 2px 7px; border-radius: 5px; background: var(--card2); color: var(--muted); }
+    .empty { color: var(--muted); padding: 30px; text-align: center; }
+    .sblink { color: var(--muted); text-decoration: underline; }
+    .act { background: none; border: 1px solid var(--border); color: var(--muted); cursor: pointer; border-radius: 6px; padding: 4px 8px; font-size: 0.8rem; margin-left: 4px; }
+    .act:hover { color: var(--text); border-color: var(--muted); }
+    .act.del:hover { color: var(--red); border-color: var(--red); }
+    .act:disabled { opacity: 0.5; cursor: default; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="logo"><span class="logo-dot"></span> Niche Finder</div>
+      <nav class="nav">
+        <a href="/">🔍 Recherche</a>
+        <a href="/pins.html" class="active">📌 Épinglés</a>
+        <a href="#">🔥 Niches</a>
+        <a href="#">🕑 Historique</a>
+        <a href="#">⚙️ Réglages</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <div class="section">
+        <h2>📌 Vidéos épinglées <span class="count" id="c-vid"></span></h2>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:100px"></th>
+              <th>Titre / chaîne</th>
+              <th class="num" style="width:70px">Vues</th>
+              <th class="num" style="width:64px">Abonnés</th>
+              <th class="num" style="width:56px">Ratio</th>
+              <th class="num" style="width:56px">Durée</th>
+              <th style="width:120px"></th>
+            </tr>
+          </thead>
+          <tbody id="vids"><tr><td colspan="7" class="empty">Chargement…</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <h2>👁️ Chaînes suivies <span class="count" id="c-chan"></span></h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Chaîne</th>
+              <th class="num" style="width:80px">Abonnés</th>
+              <th style="width:80px">Origine</th>
+              <th style="width:90px"></th>
+            </tr>
+          </thead>
+          <tbody id="chans"><tr><td colspan="4" class="empty">Chargement…</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="section archived">
+        <h2>🗄️ Vidéos archivées <span class="count" id="c-arch"></span></h2>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:100px"></th>
+              <th>Titre / chaîne</th>
+              <th class="num" style="width:70px">Vues</th>
+              <th class="num" style="width:64px">Abonnés</th>
+              <th class="num" style="width:56px">Ratio</th>
+              <th class="num" style="width:56px">Durée</th>
+              <th style="width:120px"></th>
+            </tr>
+          </thead>
+          <tbody id="arch"><tr><td colspan="7" class="empty">Aucune vidéo archivée.</td></tr></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    function fmt(n) {
+      if (n === null || n === undefined) return "—";
+      if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + "M";
+      if (n >= 1e3) return Math.round(n / 1e3) + "k";
+      return String(n);
+    }
+    function durTxt(s) {
+      const m = Math.floor(s / 60), sec = s % 60;
+      return m + ":" + String(sec).padStart(2, "0");
+    }
+    function esc(t) {
+      const d = document.createElement("div"); d.textContent = t || ""; return d.innerHTML;
+    }
+
+    // Ligne vidéo commune (épinglée ou archivée), avec boutons adaptés.
+    function videoRow(v, archived) {
+      const ratio = v.ratio === null ? "—" : Number(v.ratio);
+      const cls = (ratio !== "—" && ratio >= 20) ? "ratio" : "ratio mid";
+      const actions = archived
+        ? `<button class="act" onclick="repin('${v.video_id}', this)" title="Ré-épingler">📌</button>
+           <button class="act del" onclick="del('${v.video_id}', this)" title="Supprimer définitivement">🗑️</button>`
+        : `<button class="act" onclick="unpin('${v.video_id}', this)" title="Désépingler (archiver)">📎</button>
+           <button class="act del" onclick="del('${v.video_id}', this)" title="Supprimer définitivement">🗑️</button>`;
+      return `
+        <tr id="row-${v.video_id}">
+          <td><img class="thumb" src="${v.thumbnail}" alt="" loading="lazy"></td>
+          <td class="title">
+            <a href="https://www.youtube.com/watch?v=${v.video_id}" target="_blank">${esc(v.title)}</a>
+            <div class="chan"><a class="sblink" href="https://www.youtube.com/channel/${v.channel_id}" target="_blank" rel="noopener">${esc(v.channel_title)}</a> · <a class="sblink" href="https://socialblade.com/youtube/channel/${v.channel_id}" target="_blank" rel="noopener">SocialBlade</a></div>
+          </td>
+          <td class="num">${fmt(v.views)}</td>
+          <td class="num">${fmt(v.subscribers)}</td>
+          <td class="num ${cls}">${ratio}</td>
+          <td class="num">${durTxt(v.duration_seconds)}</td>
+          <td style="white-space:nowrap">${actions}</td>
+        </tr>`;
+    }
+
+    async function loadPins() {
+      const res = await fetch("/api/pins");
+      const vids = await res.json();
+      document.getElementById("c-vid").textContent = vids.length ? `(${vids.length})` : "";
+      const tbody = document.getElementById("vids");
+      tbody.innerHTML = vids.length
+        ? vids.map(v => videoRow(v, false)).join("")
+        : '<tr><td colspan="7" class="empty">Aucune vidéo épinglée pour l\'instant.</td></tr>';
+    }
+
+    async function loadArchived() {
+      const res = await fetch("/api/pins/archived");
+      const vids = await res.json();
+      document.getElementById("c-arch").textContent = vids.length ? `(${vids.length})` : "";
+      const tbody = document.getElementById("arch");
+      tbody.innerHTML = vids.length
+        ? vids.map(v => videoRow(v, true)).join("")
+        : '<tr><td colspan="7" class="empty">Aucune vidéo archivée.</td></tr>';
+    }
+
+    async function loadFollows() {
+      const res = await fetch("/api/follows");
+      const chans = await res.json();
+      document.getElementById("c-chan").textContent = chans.length ? `(${chans.length})` : "";
+      const tbody = document.getElementById("chans");
+      if (!chans.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">Aucune chaîne suivie pour l\'instant.</td></tr>'; return; }
+      tbody.innerHTML = chans.map(c => {
+        const origin = c.source === "video" ? "via vidéo" : "manuel";
+        return `
+          <tr>
+            <td class="title"><a href="${c.channel_url}" target="_blank">${esc(c.channel_title)}</a></td>
+            <td class="num">${fmt(c.subscribers)}</td>
+            <td><span class="src">${origin}</span></td>
+            <td><a class="sblink" href="https://socialblade.com/youtube/channel/${c.channel_id}" target="_blank" rel="noopener">SocialBlade</a></td>
+          </tr>`;
+      }).join("");
+    }
+
+    // --- Actions ---
+    async function post(url, videoId) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId }),
+      });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur"); }
+    }
+
+    async function unpin(videoId, btn) {
+      btn.disabled = true;
+      try { await post("/api/unpin", videoId); await refresh(); }
+      catch (err) { alert(err.message); btn.disabled = false; }
+    }
+
+    async function repin(videoId, btn) {
+      btn.disabled = true;
+      try { await post("/api/repin", videoId); await refresh(); }
+      catch (err) { alert(err.message); btn.disabled = false; }
+    }
+
+    async function del(videoId, btn) {
+      if (!confirm("Supprimer définitivement cette vidéo et tout son historique ? Cette action est irréversible.")) return;
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/pins/" + encodeURIComponent(videoId), { method: "DELETE" });
+        if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur"); }
+        await refresh();
+      } catch (err) { alert(err.message); btn.disabled = false; }
+    }
+
+    // Recharge les trois listes.
+    async function refresh() {
+      await loadPins();
+      await loadArchived();
+      await loadFollows();
+    }
+
+    refresh();
+  </script>
+</body>
+</html>
