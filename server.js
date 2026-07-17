@@ -280,6 +280,25 @@ app.get('/api/keywords', async (req, res) => {
   }
 });
 
+// Enregistre un mot-clé manuellement (sans scan, sans quota). scan_count=1 à la création.
+app.post('/api/keyword', async (req, res) => {
+  const keyword = (req.body?.keyword || '').trim();
+  if (!keyword) return res.status(400).json({ error: 'Mot-clé manquant.' });
+  try {
+    // Crée avec scan_count=1 ; si déjà présent, on ne touche à rien (no-op).
+    await pool.query(
+      `INSERT INTO keywords (keyword, scan_count) VALUES (?, 1)
+       ON DUPLICATE KEY UPDATE id = id`,
+      [keyword]
+    );
+    console.log(`➕ Mot-clé mémorisé : "${keyword}"`);
+    res.json({ saved: keyword });
+  } catch (err) {
+    console.error('💥 /api/keyword :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`✅ Serveur prêt sur http://127.0.0.1:${PORT}`);
 });

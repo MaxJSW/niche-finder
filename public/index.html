@@ -57,6 +57,11 @@
     .kwbadge:hover { border-color: var(--accent); color: var(--accent); }
     .kwbadge .cnt { color: var(--muted); font-size: 0.74rem; }
     .kwbadge:hover .cnt { color: var(--accent); }
+    .kwadd { display: inline-flex; align-items: center; gap: 4px; }
+    .kwadd input { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 999px; font-size: 0.82rem; width: 130px; }
+    .kwadd input:focus { outline: none; border-color: var(--accent); }
+    .kwadd button { background: var(--card); border: 1px solid var(--border); color: var(--muted); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 1rem; line-height: 1; padding: 0; }
+    .kwadd button:hover { border-color: var(--accent); color: var(--accent); }
   </style>
 </head>
 <body>
@@ -78,7 +83,13 @@
         <button id="scanBtn">Rechercher</button>
       </div>
 
-      <div class="kwbadges" id="kwbadges"></div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+        <div class="kwbadges" id="kwbadges" style="margin-bottom:0"></div>
+        <span class="kwadd">
+          <input type="text" id="kwadd-input" placeholder="mot-clé…">
+          <button id="kwadd-btn" title="Mémoriser ce mot-clé">+</button>
+        </span>
+      </div>
 
       <div class="stats">
         <div class="stat"><div class="lbl">Résultats</div><div class="val" id="s-count">—</div></div>
@@ -378,6 +389,29 @@
       doScan();
     }
 
+    async function saveKeywordManual() {
+      const input = document.getElementById("kwadd-input");
+      const kw = input.value.trim();
+      if (!kw) { input.focus(); return; }
+      const btn = document.getElementById("kwadd-btn");
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/keyword", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keyword: kw }),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur."); return; }
+        input.value = "";
+        loadKeywordBadges();
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     async function loadQuota() {
       try {
         const res = await fetch("/api/quota");
@@ -401,6 +435,8 @@
 
     document.getElementById("scanBtn").addEventListener("click", doScan);
     document.getElementById("kw").addEventListener("keydown", e => { if (e.key === "Enter") doScan(); });
+    document.getElementById("kwadd-btn").addEventListener("click", saveKeywordManual);
+    document.getElementById("kwadd-input").addEventListener("keydown", e => { if (e.key === "Enter") saveKeywordManual(); });
   </script>
 </body>
 </html>
