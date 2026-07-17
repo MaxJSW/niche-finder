@@ -52,6 +52,11 @@
     tr.desc td { background: #131318; color: var(--muted); font-size: 0.82rem; line-height: 1.6; white-space: pre-wrap; padding: 14px 16px; }
     tr.hidden { display: none; }
     .empty { color: var(--muted); padding: 30px; text-align: center; }
+    .kwbadges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+    .kwbadge { display: inline-flex; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 999px; font-size: 0.82rem; cursor: pointer; }
+    .kwbadge:hover { border-color: var(--accent); color: var(--accent); }
+    .kwbadge .cnt { color: var(--muted); font-size: 0.74rem; }
+    .kwbadge:hover .cnt { color: var(--accent); }
   </style>
 </head>
 <body>
@@ -73,6 +78,8 @@
         <button id="scanBtn">Rechercher</button>
       </div>
 
+      <div class="kwbadges" id="kwbadges"></div>
+
       <div class="stats">
         <div class="stat"><div class="lbl">Résultats</div><div class="val" id="s-count">—</div></div>
         <div class="stat"><div class="lbl">Ratio médian</div><div class="val" id="s-ratio" style="color:var(--green)">—</div></div>
@@ -82,16 +89,16 @@
 
       <div class="filters">
         <div class="filter">
-          <div class="flbl">Durée min <b id="v-dur">1:00</b></div>
-          <input type="range" id="f-dur" min="0" max="1200" value="60" step="15">
+          <div class="flbl">Durée min <b id="v-dur">3:00</b></div>
+          <input type="range" id="f-dur" min="0" max="1200" value="180" step="15">
         </div>
         <div class="filter">
           <div class="flbl">Vues min <b id="v-views">0</b></div>
           <input type="range" id="f-views" min="0" max="1000000" value="0" step="10000">
         </div>
         <div class="filter">
-          <div class="flbl">Abonnés max <b id="v-subs">aucun</b></div>
-          <input type="range" id="f-subs" min="0" max="500000" value="500000" step="5000">
+          <div class="flbl">Abonnés max <b id="v-subs">30k</b></div>
+          <input type="range" id="f-subs" min="0" max="500000" value="30000" step="5000">
         </div>
         <div class="filter">
           <div class="flbl">Ratio min <b id="v-ratio">0</b></div>
@@ -344,12 +351,31 @@
         await loadFollowedState();
         render();
         loadQuota();
+        loadKeywordBadges();
       } catch (err) {
         alert("Erreur réseau : " + err.message);
       } finally {
         btn.disabled = false;
         btn.textContent = "Rechercher";
       }
+    }
+
+    async function loadKeywordBadges() {
+      try {
+        const res = await fetch("/api/keywords");
+        if (!res.ok) return;
+        const kws = await res.json();
+        const box = document.getElementById("kwbadges");
+        if (!kws.length) { box.innerHTML = ""; return; }
+        box.innerHTML = kws.map(k =>
+          `<span class="kwbadge" onclick="scanFromBadge('${esc(k.keyword).replace(/'/g, "\\'")}')">${esc(k.keyword)}<span class="cnt">×${k.scan_count}</span></span>`
+        ).join("");
+      } catch {}
+    }
+
+    function scanFromBadge(keyword) {
+      document.getElementById("kw").value = keyword;
+      doScan();
     }
 
     async function loadQuota() {
@@ -362,13 +388,14 @@
 
     async function load() {
       const res = await fetch("/api/latest");
-      if (!res.ok) { document.getElementById("rows").innerHTML = '<tr><td colspan="7" class="empty">Aucun scan encore. Tape un mot-clé et lance une recherche.</td></tr>'; loadQuota(); return; }
+      if (!res.ok) { document.getElementById("rows").innerHTML = '<tr><td colspan="7" class="empty">Aucun scan encore. Tape un mot-clé et lance une recherche.</td></tr>'; loadQuota(); loadKeywordBadges(); return; }
       DATA = await res.json();
       document.getElementById("kw").value = DATA.keyword;
       await loadPinnedState();
       await loadFollowedState();
       render();
       loadQuota();
+      loadKeywordBadges();
     }
     load();
 

@@ -17,11 +17,12 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// Insère (ou récupère) le mot-clé, incrémente son compteur, renvoie son id.
+// Récupère (ou crée) le mot-clé SANS toucher scan_count, renvoie son id.
+// scan_count est géré uniquement par les scans réels (voir recordScan dans save.js).
 async function upsertKeyword(conn, keyword) {
   await conn.query(
-    `INSERT INTO keywords (keyword, scan_count) VALUES (?, 1)
-     ON DUPLICATE KEY UPDATE scan_count = scan_count + 1`,
+    `INSERT INTO keywords (keyword, scan_count) VALUES (?, 0)
+     ON DUPLICATE KEY UPDATE id = id`,
     [keyword]
   );
   const [rows] = await conn.query('SELECT id FROM keywords WHERE keyword = ?', [keyword]);
@@ -143,4 +144,36 @@ async function followChannel(channel) {
   }
 }
 
-export { pinVideo, followChannel };
+// --- Tracer un scan réel (appelé par /api/scan) ---
+// Incrémente scan_count du mot-clé ET insère une ligne scans avec les vrais chiffres.
+async function recordScan(keyword, { quotaUsed, videoCount }) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // Le scan réel est le SEUL endroit qui incrémente scan_count.
+    await conn.query(
+      `INSERT INTO keywords (keyword, scan_count) VALUES (?, 1)
+       ON DUPLICATE KEY UPDATE scan_count = scan_count + 1`,
+      [keyword]
+    );
+    const [rows] = await conn.query('SELECT id FROM keywords WHERE keyword = ?', [keyword]);
+    const keywordId = rows[0].id;
+
+    const [res] = await conn.query(
+      `INSERT INTO scans (keyword_id, fetched_at, quota_used, video_count)
+       VALUES (?, NOW(), ?, ?)`,
+      [keywordId, quotaUsed ?? 0, videoCount ?? 0]
+    );
+
+    await conn.commit();
+    return { keywordId, scanId: res.insertId };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+export { pinVideo, followChannel, recordScan };

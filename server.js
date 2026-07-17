@@ -7,7 +7,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { scanKeyword } from './scan.js';   // la fonction déjà exportée de scan.js
-import { pinVideo, followChannel } from './save.js';
+import { pinVideo, followChannel, recordScan } from './save.js';
 import { pool } from './db.js';
 
 dns.setDefaultResultOrder('ipv4first');
@@ -86,6 +86,16 @@ app.post('/api/scan', async (req, res) => {
 
     const quota = await addQuota(output.quotaUsed);   // +102
     console.log(`✅ ${output.count} vidéos · quota jour : ${quota.used}/${QUOTA_LIMIT}`);
+
+    // Trace le mot-clé + le scan en base, uniquement si le scan a donné des résultats.
+    if (output.count > 0) {
+      try {
+        await recordScan(keyword, { quotaUsed: output.quotaUsed, videoCount: output.count });
+        console.log(`🗄️  Scan tracé en base : "${keyword}" (scan_count++)`);
+      } catch (dbErr) {
+        console.error('⚠️  Traçage scan en base échoué (scan quand même renvoyé) :', dbErr.message);
+      }
+    }
 
     res.json({ ...output, quota });
   } catch (err) {
@@ -250,6 +260,22 @@ app.get('/api/follows', async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error('💥 /api/follows :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Liste les mots-clés déjà recherchés (les 15 plus scannés), pour les badges cliquables.
+app.get('/api/keywords', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT keyword, scan_count, first_seen
+      FROM keywords
+      ORDER BY scan_count DESC, first_seen DESC
+      LIMIT 15
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('💥 /api/keywords :', err.message);
     res.status(500).json({ error: err.message });
   }
 });
