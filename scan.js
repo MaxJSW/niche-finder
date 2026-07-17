@@ -61,7 +61,12 @@ async function ytGet(endpoint, params) {
 }
 
 // Le coeur : 1 search + 1 videos + 1 channels -> tableau de records.
-async function scanKeyword(keyword) {
+// options : { regionCode, relevanceLanguage } — pilotés par l'UI, null = mondial.
+async function scanKeyword(keyword, options = {}) {
+  // Les options de l'UI priment ; sinon on retombe sur les valeurs par défaut.
+  const regionCode = options.regionCode ?? SEARCH_PARAMS.regionCode;
+  const relevanceLanguage = options.relevanceLanguage ?? SEARCH_PARAMS.relevanceLanguage;
+
   // 1) search.list — 100 u — jusqu'à 50 vidéos
   const search = await ytGet('search', {
     part: 'snippet',
@@ -70,8 +75,8 @@ async function scanKeyword(keyword) {
     order: SEARCH_PARAMS.order,
     maxResults: SEARCH_PARAMS.maxResults,
     publishedAfter: SEARCH_PARAMS.publishedAfter,
-    regionCode: SEARCH_PARAMS.regionCode,
-    relevanceLanguage: SEARCH_PARAMS.relevanceLanguage,
+    regionCode,
+    relevanceLanguage,
   });
 
   const videoIds = [...new Set((search.items || []).map(i => i.id?.videoId).filter(Boolean))];
@@ -124,15 +129,15 @@ async function scanKeyword(keyword) {
     };
   });
 
-  return buildOutput(keyword, records);
+return buildOutput(keyword, records, { regionCode, relevanceLanguage });
 }
 
 // Enveloppe le résultat avec les métadonnées (le schéma figé).
-function buildOutput(keyword, videos) {
+function buildOutput(keyword, videos, used = {}) {
   return {
     keyword,
     fetchedAt: new Date().toISOString(),
-    filters: SEARCH_PARAMS,
+    filters: { ...SEARCH_PARAMS, ...used },
     quotaUsed: 102,
     count: videos.length,
     videos,
@@ -149,8 +154,6 @@ async function main() {
     console.error('Usage : node --env-file=.env scan.js "mot-clé"');
     process.exit(1);
   }
-
-  console.log(`🔍 Scan : "${keyword}"...`);
   const output = await scanKeyword(keyword);
 
   await mkdir(DATA_DIR, { recursive: true });
@@ -159,12 +162,7 @@ async function main() {
   const file = path.join(DATA_DIR, `${slug}_${stamp}.json`);
 
   await writeFile(file, JSON.stringify(output, null, 2));                 // historique
-  await writeFile(path.join(DATA_DIR, 'latest.json'), JSON.stringify(output, null, 2)); // pour l'UI
-
-  console.log(`✅ ${output.count} vidéos analysées`);
-  console.log(`   -> ${file}`);
-  console.log(`   -> data/latest.json (ce que lira l'interface à l'étape 2)`);
-  console.log(`💸 Quota consommé : ~102 unités`);
+  await writeFile(path.join(DATA_DIR, 'latest.json'), JSON.stringify(output, null, 2));
 }
 
 // Exporté pour que l'Express l'appelle à l'étape 2, sans relancer le CLI.

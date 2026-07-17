@@ -68,6 +68,10 @@ app.post('/api/scan', async (req, res) => {
   const keyword = (req.body?.keyword || '').trim();
   if (!keyword) return res.status(400).json({ error: 'Mot-clé manquant.' });
 
+  // Options pilotées par l'UI (null/absent = mondial).
+  const regionCode = req.body?.regionCode || null;
+  const relevanceLanguage = req.body?.relevanceLanguage || null;
+
   // Garde-fou : refuse si le quota du jour est déjà au plafond.
   const q = await readQuota();
   if (q.used + 102 > QUOTA_LIMIT) {
@@ -75,8 +79,8 @@ app.post('/api/scan', async (req, res) => {
   }
 
   try {
-    console.log(`🔍 Scan demandé : "${keyword}"`);
-    const output = await scanKeyword(keyword);
+    console.log(`🔍 Scan demandé : "${keyword}" (région: ${regionCode || 'mondial'}, langue: ${relevanceLanguage || 'toutes'})`);
+    const output = await scanKeyword(keyword, { regionCode, relevanceLanguage });
 
     // Sauvegarde comme le fait scan.js (historique + latest.json pour l'UI).
     const slug = keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

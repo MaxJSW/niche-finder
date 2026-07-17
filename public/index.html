@@ -25,6 +25,8 @@
     .searchbar { display: flex; gap: 8px; margin-bottom: 20px; }
     .searchbar input { flex: 1; background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 8px; font-size: 0.9rem; }
     .searchbar button { background: var(--accent); color: #0a0a0a; border: none; padding: 0 18px; border-radius: 8px; font-weight: 500; cursor: pointer; font-size: 0.9rem; }
+    .selbox { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 0 10px; border-radius: 8px; font-size: 0.85rem; cursor: pointer; }
+    .selbox:focus { outline: none; border-color: var(--accent); }
 
     .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
     .stat { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
@@ -80,6 +82,22 @@
     <main class="main">
       <div class="searchbar">
         <input type="text" id="kw" placeholder="Mot-clé à rechercher…">
+        <select id="f-region" class="selbox" title="Région ciblée">
+          <option value="">🌍 Mondial</option>
+          <option value="US">États-Unis</option>
+          <option value="GB">Royaume-Uni</option>
+          <option value="CA">Canada</option>
+          <option value="AU">Australie</option>
+          <option value="FR">France</option>
+          <option value="BE">Belgique</option>
+          <option value="CH">Suisse</option>
+        </select>
+        <select id="f-lang" class="selbox" title="Langue ciblée">
+          <option value="">Toutes langues</option>
+          <option value="en">Anglais</option>
+          <option value="fr">Français</option>
+          <option value="es">Espagnol</option>
+        </select>
         <button id="scanBtn">Rechercher</button>
       </div>
 
@@ -345,6 +363,9 @@
       const kw = document.getElementById("kw").value.trim();
       if (!kw) { document.getElementById("kw").focus(); return; }
 
+      const regionCode = document.getElementById("f-region").value;
+      const relevanceLanguage = document.getElementById("f-lang").value;
+
       const btn = document.getElementById("scanBtn");
       btn.disabled = true;
       btn.textContent = "Recherche…";
@@ -353,7 +374,7 @@
         const res = await fetch("/api/scan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ keyword: kw }),
+          body: JSON.stringify({ keyword: kw, regionCode, relevanceLanguage }),
         });
         const json = await res.json();
         if (!res.ok) { alert(json.error || "Erreur pendant le scan."); return; }
