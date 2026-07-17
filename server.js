@@ -7,6 +7,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { scanKeyword } from './scan.js';   // la fonction déjà exportée de scan.js
+import { pinVideo, followChannel } from './save.js';
 
 dns.setDefaultResultOrder('ipv4first');
 
@@ -88,6 +89,38 @@ app.post('/api/scan', async (req, res) => {
     res.json({ ...output, quota });
   } catch (err) {
     console.error('💥 Scan échoué :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Épingle une vidéo (+ suit sa chaîne d'office) — enregistrement sélectif en base.
+app.post('/api/pin', async (req, res) => {
+  const { video, keyword } = req.body || {};
+  if (!video?.videoId || !keyword) {
+    return res.status(400).json({ error: 'Champs "video" (avec videoId) et "keyword" requis.' });
+  }
+  try {
+    const result = await pinVideo(video, keyword);
+    console.log(`📌 Vidéo épinglée : ${result.pinned}`);
+    res.json(result);
+  } catch (err) {
+    console.error('💥 Épinglage échoué :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Suit une chaîne seule (source 'manual').
+app.post('/api/follow', async (req, res) => {
+  const { channel } = req.body || {};
+  if (!channel?.channelId) {
+    return res.status(400).json({ error: 'Champ "channel" (avec channelId) requis.' });
+  }
+  try {
+    const result = await followChannel(channel);
+    console.log(`👁️ Chaîne suivie : ${result.followed}`);
+    res.json(result);
+  } catch (err) {
+    console.error('💥 Suivi échoué :', err.message);
     res.status(500).json({ error: err.message });
   }
 });
