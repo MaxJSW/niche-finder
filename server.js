@@ -7,6 +7,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { scanKeyword } from './scan.js';   // la fonction déjà exportée de scan.js
+import { searchChannels } from './search-channels.js';
 import { pinVideo, followChannel, recordScan } from './save.js';
 import { crawlChannel } from './channel.js';
 import { saveChannelCrawl } from './save-target.js';
@@ -343,6 +344,38 @@ app.post('/api/breakouts', async (req, res) => {
     });
   } catch (err) {
     console.error('💥 /api/breakouts :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// Recherche de chaînes par nom (search.list type=channel).
+// Coût : 100u par page (2 pages max) + 1u par lot de 50 → ~202u.
+// Affichage volatil : rien n'est écrit en base, le bouton 🎯 renvoie vers targets.html.
+app.post('/api/search/channels', async (req, res) => {
+  const keyword = (req.body?.keyword || '').trim();
+  if (!keyword) return res.status(400).json({ error: 'Mot-clé manquant.' });
+
+  const regionCode = req.body?.regionCode || null;
+  const relevanceLanguage = req.body?.relevanceLanguage || null;
+  const maxPages = Number(req.body?.maxPages) === 1 ? 1 : 2;
+
+  const estimate = maxPages === 1 ? 105 : 210;
+  const q = await readQuota();
+  if (q.used + estimate > QUOTA_LIMIT) {
+    return res.status(429).json({ error: `Quota journalier presque épuisé (${q.used}/${QUOTA_LIMIT}). Réessaie demain.` });
+  }
+
+  try {
+    console.log(`📺 Recherche de chaînes : "${keyword}" (${maxPages} page${maxPages > 1 ? 's' : ''})`);
+    const output = await searchChannels(keyword, { regionCode, relevanceLanguage, maxPages });
+
+    const quota = await addQuota(output.quotaUsed);
+    console.log(`✅ ${output.count} chaînes · quota jour : ${quota.used}/${QUOTA_LIMIT}`);
+
+    res.json({ ...output, quota });
+  } catch (err) {
+    console.error('💥 Recherche de chaînes échouée :', err.message);
     res.status(500).json({ error: err.message });
   }
 });

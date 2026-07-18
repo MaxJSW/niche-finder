@@ -12,6 +12,13 @@
 
     <main class="main">
       <h1 class="page-title">Recherche</h1>
+
+      <div class="tabs">
+        <button class="tab active" data-pane="pane-videos">🎬 Vidéos</button>
+        <button class="tab" data-pane="pane-channels">📺 Chaînes</button>
+      </div>
+
+      <div class="pane active" id="pane-videos">
       <div class="searchbar">
         <input type="text" id="kw" placeholder="Mot-clé à rechercher…">
         <select id="f-region" class="selbox" title="Région ciblée">
@@ -87,6 +94,78 @@
         <tbody id="rows"><tr><td colspan="8" class="empty">Chargement…</td></tr></tbody>
       </table>
       </div>
+      </div><!-- /pane-videos -->
+
+      <div class="pane" id="pane-channels">
+        <div class="searchbar">
+          <input type="text" id="ckw" placeholder="Nom de chaîne à rechercher…">
+          <select id="cf-region" class="selbox" title="Région ciblée">
+            <option value="">🌍 Mondial</option>
+            <option value="US">États-Unis</option>
+            <option value="GB">Royaume-Uni</option>
+            <option value="CA">Canada</option>
+            <option value="AU">Australie</option>
+            <option value="FR">France</option>
+            <option value="BE">Belgique</option>
+            <option value="CH">Suisse</option>
+          </select>
+          <select id="cf-lang" class="selbox" title="Langue ciblée">
+            <option value="">Toutes langues</option>
+            <option value="en">Anglais</option>
+            <option value="fr">Français</option>
+            <option value="es">Espagnol</option>
+          </select>
+          <select id="cf-pages" class="selbox" title="Nombre de résultats">
+            <option value="1">50 résultats (~101 u)</option>
+            <option value="2" selected>100 résultats (~202 u)</option>
+          </select>
+          <button id="cScanBtn">Rechercher</button>
+        </div>
+
+        <div class="stats">
+          <div class="stat"><div class="lbl">Chaînes trouvées</div><div class="val" id="cs-count">—</div></div>
+          <div class="stat"><div class="lbl">Densité médiane</div><div class="val" id="cs-density" style="color:var(--green)">—</div></div>
+          <div class="stat"><div class="lbl">Âge médian</div><div class="val" id="cs-age">—</div></div>
+          <div class="stat"><div class="lbl">Quota du jour</div><div class="val" id="cs-quota">—</div></div>
+        </div>
+
+        <div class="filters">
+          <div class="filter">
+            <div class="flbl">Abonnés max <b id="cv-subs">100k</b></div>
+            <input type="range" id="cf-subs" min="0" max="1000000" value="100000" step="10000">
+          </div>
+          <div class="filter">
+            <div class="flbl">Vidéos max <b id="cv-vid">500</b></div>
+            <input type="range" id="cf-vid" min="0" max="2000" value="500" step="25">
+          </div>
+          <div class="filter">
+            <div class="flbl">Âge max <b id="cv-age">aucun</b></div>
+            <input type="range" id="cf-age" min="0" max="240" value="240" step="3">
+          </div>
+          <div class="filter">
+            <div class="flbl">Densité min <b id="cv-dens">0</b></div>
+            <input type="range" id="cf-dens" min="0" max="20000" value="0" step="250">
+          </div>
+        </div>
+
+        <div class="tablecard">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:60px"></th>
+                <th>Chaîne</th>
+                <th class="num" style="width:76px">Abonnés</th>
+                <th class="num" style="width:64px">Vidéos</th>
+                <th class="num" style="width:84px">Abo / vidéo</th>
+                <th class="num" style="width:84px">Vues / vidéo</th>
+                <th class="num" style="width:64px">Âge</th>
+                <th style="width:88px"></th>
+              </tr>
+            </thead>
+            <tbody id="crows"><tr><td colspan="8" class="empty">Tape un nom de chaîne et lance une recherche.</td></tr></tbody>
+          </table>
+        </div>
+      </div><!-- /pane-channels -->
     </main>
   </div>
 
@@ -469,6 +548,140 @@
     function closeModal() {
       document.getElementById("modal-slot").innerHTML = "";
     }
+
+    // ============================================================
+    //  ONGLET « CHAÎNES » — recherche par nom (search.list type=channel)
+    // ============================================================
+
+    let CDATA = null;
+
+    // Bascule d'onglets.
+    document.querySelectorAll(".tab").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".pane").forEach(p => p.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById(btn.dataset.pane).classList.add("active");
+        if (btn.dataset.pane === "pane-channels") loadChannelQuota();
+      });
+    });
+
+    function readChannelFilters() {
+      const subsRaw = +document.getElementById("cf-subs").value;
+      const vidRaw = +document.getElementById("cf-vid").value;
+      const ageRaw = +document.getElementById("cf-age").value;
+      return {
+        subsMax: subsRaw >= 1000000 ? Infinity : subsRaw,
+        vidMax: vidRaw >= 2000 ? Infinity : vidRaw,
+        ageMax: ageRaw >= 240 ? Infinity : ageRaw,
+        densMin: +document.getElementById("cf-dens").value,
+      };
+    }
+
+    function syncChannelLabels() {
+      const f = readChannelFilters();
+      document.getElementById("cv-subs").textContent = f.subsMax === Infinity ? "aucun" : fmt(f.subsMax);
+      document.getElementById("cv-vid").textContent = f.vidMax === Infinity ? "aucun" : f.vidMax;
+      document.getElementById("cv-age").textContent = f.ageMax === Infinity ? "aucun" : f.ageMax + " mois";
+      document.getElementById("cv-dens").textContent = fmt(f.densMin);
+    }
+
+    function renderChannels() {
+      syncChannelLabels();
+      if (!CDATA) return;
+      const f = readChannelFilters();
+
+      const chans = CDATA.channels
+        .filter(c => (c.subscribers ?? 0) <= f.subsMax)
+        .filter(c => c.videoCount <= f.vidMax)
+        .filter(c => c.ageMonths === null || c.ageMonths <= f.ageMax)
+        .filter(c => (c.density ?? 0) >= f.densMin)
+        .sort((a, b) => (b.density ?? -1) - (a.density ?? -1));
+
+      document.getElementById("cs-count").textContent = chans.length;
+      document.getElementById("cs-density").textContent = fmt(median(chans.map(c => c.density).filter(d => d != null)));
+      const ages = chans.map(c => c.ageMonths).filter(a => a != null);
+      const medAge = median(ages);
+      document.getElementById("cs-age").textContent = medAge != null ? Math.round(medAge) + " m" : "—";
+
+      const tbody = document.getElementById("crows");
+      if (!chans.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty">Aucune chaîne ne passe ces filtres. Assouplis les curseurs.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = chans.map(c => {
+        const d = c.density ?? 0;
+        const dcls = d >= 5000 ? "density" : d >= 1500 ? "density mid" : "density low";
+        const url = c.handle ? "https://www.youtube.com/" + c.handle : "https://www.youtube.com/channel/" + c.channelId;
+        return `
+          <tr>
+            <td>${c.thumbnail ? `<img class="avatar" src="${c.thumbnail}" alt="" loading="lazy">` : ""}</td>
+            <td class="title">
+              <a href="${url}" target="_blank" rel="noopener">${esc(c.channelTitle)}</a>
+              ${c.handle ? ` <span style="color:var(--muted);font-size:.76rem">${esc(c.handle)}</span>` : ""}
+              <div class="chdesc">${esc(c.description) || "(pas de description)"}</div>
+            </td>
+            <td class="num">${fmt(c.subscribers)}</td>
+            <td class="num">${fmt(c.videoCount)}</td>
+            <td class="num ${dcls}">${fmt(c.density)}</td>
+            <td class="num">${fmt(c.viewsPerVideo)}</td>
+            <td class="num">${c.ageMonths != null ? Math.round(c.ageMonths) + " m" : "—"}</td>
+            <td class="num" style="white-space:nowrap">
+              <a class="act" href="/targets.html?channelId=${c.channelId}" title="Crawler cette chaîne" style="text-decoration:none;display:inline-block">🎯</a>
+              <a class="act" href="https://socialblade.com/youtube/channel/${c.channelId}" target="_blank" rel="noopener" title="SocialBlade" style="text-decoration:none;display:inline-block">📊</a>
+            </td>
+          </tr>`;
+      }).join("");
+    }
+
+    async function doChannelSearch() {
+      const input = document.getElementById("ckw");
+      const kw = input.value.trim();
+      if (!kw) { input.focus(); return; }
+
+      const regionCode = document.getElementById("cf-region").value;
+      const relevanceLanguage = document.getElementById("cf-lang").value;
+      const maxPages = Number(document.getElementById("cf-pages").value);
+
+      const btn = document.getElementById("cScanBtn");
+      btn.disabled = true;
+      btn.textContent = "Recherche…";
+
+      try {
+        const res = await fetch("/api/search/channels", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keyword: kw, regionCode, relevanceLanguage, maxPages }),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur pendant la recherche."); return; }
+        CDATA = json;
+        renderChannels();
+        if (json.quota) document.getElementById("cs-quota").textContent = json.quota.used + " / " + json.quota.limit;
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Rechercher";
+      }
+    }
+
+    async function loadChannelQuota() {
+      try {
+        const res = await fetch("/api/quota");
+        const q = await res.json();
+        document.getElementById("cs-quota").textContent = q.used + " / " + q.limit;
+      } catch {}
+    }
+
+    ["cf-subs", "cf-vid", "cf-age", "cf-dens"].forEach(id =>
+      document.getElementById(id).addEventListener("input", renderChannels)
+    );
+
+    document.getElementById("cScanBtn").addEventListener("click", doChannelSearch);
+    document.getElementById("ckw").addEventListener("keydown", e => { if (e.key === "Enter") doChannelSearch(); });
+    syncChannelLabels();
 
     document.getElementById("scanBtn").addEventListener("click", doScan);
     document.getElementById("kw").addEventListener("keydown", e => { if (e.key === "Enter") doScan(); });
