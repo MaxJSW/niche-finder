@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Niche Finder — Channel Crawl</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .crawlbar { display: flex; gap: 8px; margin-bottom: 18px; }
+    .crawlbar input { flex: 1; background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 9px; font-size: 0.9rem; font-family: ui-monospace, monospace; }
+    .crawlbar input:focus { outline: none; border-color: var(--accent); }
+    .hint { color: var(--muted); font-size: 0.76rem; margin: -10px 0 20px; }
+    .chanrow { cursor: pointer; }
+    .chanrow.sel td { background: var(--accent-soft) !important; }
+    .delta { font-weight: 600; }
+    .delta.up { color: var(--green); }
+    .delta.flat { color: var(--muted); }
+    .tagline { color: var(--muted); font-size: 0.72rem; margin-top: 4px; }
+    .backlink { color: var(--muted); font-size: 0.8rem; cursor: pointer; text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side"></aside>
+
+    <main class="main">
+      <h1 class="page-title">Channel Crawl</h1>
+
+      <div class="crawlbar">
+        <input type="text" id="cid" placeholder="channelId (UC...)" spellcheck="false">
+        <select id="pages" class="selbox" title="Limite de vidéos">
+          <option value="2">100 vidéos max</option>
+          <option value="5">250 vidéos max</option>
+          <option value="10" selected>500 vidéos max</option>
+          <option value="20">1000 vidéos max</option>
+        </select>
+        <button id="crawlBtn">Crawler</button>
+      </div>
+      <div class="hint">Le channelId est immuable (contrairement au @handle). Visible dans l'URL /channel/UC… ou via SocialBlade.</div>
+
+      <div class="stats">
+        <div class="stat"><div class="lbl">Chaînes cibles</div><div class="val" id="s-chan">—</div></div>
+        <div class="stat"><div class="lbl">Vidéos crawlées</div><div class="val" id="s-vid">—</div></div>
+        <div class="stat"><div class="lbl">Quota du jour</div><div class="val" id="s-quota">—</div></div>
+        <div class="stat"><div class="lbl">Dernier crawl</div><div class="val" id="s-last" style="font-size:0.95rem">—</div></div>
+      </div>
+
+      <div class="section">
+        <h2>🎯 Chaînes cibles <span class="count" id="c-chan"></span></h2>
+        <div class="tablecard">
+          <table>
+            <thead>
+              <tr>
+                <th>Chaîne</th>
+                <th class="num" style="width:80px">Abonnés</th>
+                <th class="num" style="width:80px">Vidéos</th>
+                <th class="num" style="width:90px">Vues totales</th>
+                <th style="width:110px">Dernier crawl</th>
+                <th style="width:90px"></th>
+              </tr>
+            </thead>
+            <tbody id="chans"><tr><td colspan="6" class="empty">Chargement…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="section" id="vidsection" style="display:none">
+        <h2>📹 <span id="vidtitle"></span> <span class="count" id="c-vid"></span>
+          <span class="backlink" id="closevids" style="margin-left:10px">fermer</span>
+        </h2>
+        <div class="tablecard">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:100px"></th>
+                <th>Titre</th>
+                <th class="num" style="width:80px">Vues</th>
+                <th class="num" style="width:90px">Δ 30j</th>
+                <th class="num" style="width:60px">Likes</th>
+                <th class="num" style="width:56px">Durée</th>
+                <th style="width:90px">Publiée</th>
+              </tr>
+            </thead>
+            <tbody id="vids"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    function fmt(n) {
+      if (n === null || n === undefined) return "—";
+      if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + "M";
+      if (n >= 1e3) return Math.round(n / 1e3) + "k";
+      return String(n);
+    }
+    function durTxt(s) {
+      const m = Math.floor(s / 60), sec = s % 60;
+      return m + ":" + String(sec).padStart(2, "0");
+    }
+    function esc(t) {
+      const d = document.createElement("div"); d.textContent = t || ""; return d.innerHTML;
+    }
+    function dateTxt(iso) {
+      if (!iso) return "—";
+      return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "2-digit" });
+    }
+
+    let CHANNELS = [];
+
+    async function loadChannels() {
+      const res = await fetch("/api/target/channels");
+      CHANNELS = await res.json();
+
+      document.getElementById("c-chan").textContent = CHANNELS.length ? `(${CHANNELS.length})` : "";
+      document.getElementById("s-chan").textContent = CHANNELS.length;
+      document.getElementById("s-vid").textContent = CHANNELS.reduce((a, c) => a + (c.crawled_videos || 0), 0);
+      document.getElementById("s-last").textContent = CHANNELS.length ? dateTxt(CHANNELS[0].last_crawled_at) : "—";
+
+      const tbody = document.getElementById("chans");
+      if (!CHANNELS.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">Aucune chaîne crawlée. Colle un channelId ci-dessus.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = CHANNELS.map(c => `
+        <tr class="chanrow" id="ch-${c.channel_id}" onclick="showVideos('${c.channel_id}')">
+          <td class="title">
+            <a href="https://www.youtube.com/channel/${c.channel_id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(c.channel_title)}</a>
+            ${c.handle ? `<div class="chan">${esc(c.handle)}</div>` : ""}
+          </td>
+          <td class="num">${fmt(c.subscribers)}</td>
+          <td class="num">${c.crawled_videos} / ${c.video_count ?? "?"}</td>
+          <td class="num">${fmt(c.total_views)}</td>
+          <td>${dateTxt(c.last_crawled_at)}</td>
+          <td style="white-space:nowrap">
+            <button class="act" onclick="event.stopPropagation();recrawl('${c.channel_id}', this)" title="Re-crawler (met à jour les stats)">🔄</button>
+            <button class="act del" onclick="event.stopPropagation();delChannel('${c.channel_id}', this)" title="Supprimer + tout l'historique">🗑️</button>
+          </td>
+        </tr>`).join("");
+    }
+
+    async function showVideos(channelId) {
+      document.querySelectorAll(".chanrow").forEach(r => r.classList.remove("sel"));
+      document.getElementById("ch-" + channelId)?.classList.add("sel");
+
+      const ch = CHANNELS.find(c => c.channel_id === channelId);
+      document.getElementById("vidtitle").textContent = ch ? ch.channel_title : channelId;
+      document.getElementById("vidsection").style.display = "";
+
+      const tbody = document.getElementById("vids");
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">Chargement…</td></tr>';
+
+      const res = await fetch(`/api/target/videos/${encodeURIComponent(channelId)}?days=30`);
+      const data = await res.json();
+      const vids = data.videos || [];
+      const k = data.counts || {};
+
+      // Comptage : les Shorts sont signalés mais jamais affichés.
+      const parts = [`${k.longues || 0} longue${(k.longues || 0) > 1 ? "s" : ""}`];
+      if (k.shorts)  parts.push(`${k.shorts} Short${k.shorts > 1 ? "s" : ""}`);
+      if (k.courtes) parts.push(`${k.courtes} < 2 min`);
+      document.getElementById("c-vid").textContent = `(${parts.join(" · ")})`;
+
+      if (!vids.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty">Aucune vidéo de plus de ${Math.round((data.minDuration || 120) / 60)} min. ${k.shorts ? `Cette chaîne publie ${k.shorts} Short${k.shorts > 1 ? "s" : ""}.` : ""}</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = vids.map(v => {
+        const delta = v.views_delta;
+        const deltaTxt = delta === null || delta === undefined
+          ? '<span class="delta flat">—</span>'
+          : `<span class="delta ${delta > 0 ? "up" : "flat"}">${delta > 0 ? "+" : ""}${fmt(delta)}</span>`;
+        let tags = [];
+        try { tags = typeof v.tags === "string" ? JSON.parse(v.tags) : (v.tags || []); } catch {}
+        return `
+          <tr>
+            <td><img class="thumb" src="${v.thumbnail}" alt="" loading="lazy"></td>
+            <td class="title">
+              <a href="https://www.youtube.com/watch?v=${v.video_id}" target="_blank" rel="noopener">${esc(v.title)}</a>
+              ${tags.length ? `<div class="tagline">${esc(tags.slice(0, 5).join(" · "))}</div>` : ""}
+            </td>
+            <td class="num">${fmt(v.views)}</td>
+            <td class="num">${deltaTxt}</td>
+            <td class="num">${fmt(v.likes)}</td>
+            <td class="num">${durTxt(v.duration_seconds)}</td>
+            <td>${dateTxt(v.published_at)}</td>
+          </tr>`;
+      }).join("");
+    }
+
+    async function doCrawl(channelId, maxPages, btn) {
+      btn.disabled = true;
+      const label = btn.textContent;
+      btn.textContent = "…";
+      try {
+        const res = await fetch("/api/target/crawl", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channelId, maxPages }),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur pendant le crawl."); return null; }
+        if (json.truncated) alert(`Chaîne tronquée : seules les ${json.videosSaved} vidéos les plus récentes ont été récupérées. Augmente la limite pour aller plus loin.`);
+        await loadChannels();
+        loadQuota();
+        return json;
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+        return null;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    }
+
+    async function startCrawl() {
+      const input = document.getElementById("cid");
+      const cid = input.value.trim();
+      if (!cid) { input.focus(); return; }
+      if (!/^UC[\w-]{20,}$/.test(cid)) {
+        if (!confirm("Ça ne ressemble pas à un channelId (UC… suivi de 22 caractères). Continuer quand même ?")) return;
+      }
+      const maxPages = Number(document.getElementById("pages").value);
+      const out = await doCrawl(cid, maxPages, document.getElementById("crawlBtn"));
+      if (out) { input.value = ""; showVideos(out.channel.channelId); }
+    }
+
+    async function recrawl(channelId, btn) {
+      await doCrawl(channelId, 20, btn);
+      showVideos(channelId);
+    }
+
+    async function delChannel(channelId, btn) {
+      if (!confirm("Supprimer cette chaîne cible et TOUT son historique de vidéos et de stats ? Irréversible.")) return;
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/target/channels/" + encodeURIComponent(channelId), { method: "DELETE" });
+        if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur"); }
+        document.getElementById("vidsection").style.display = "none";
+        await loadChannels();
+      } catch (err) { alert(err.message); btn.disabled = false; }
+    }
+
+    async function loadQuota() {
+      try {
+        const res = await fetch("/api/quota");
+        const q = await res.json();
+        document.getElementById("s-quota").textContent = q.used + " / " + q.limit;
+      } catch {}
+    }
+
+    document.getElementById("crawlBtn").addEventListener("click", startCrawl);
+    document.getElementById("cid").addEventListener("keydown", e => { if (e.key === "Enter") startCrawl(); });
+    document.getElementById("closevids").addEventListener("click", () => {
+      document.getElementById("vidsection").style.display = "none";
+      document.querySelectorAll(".chanrow").forEach(r => r.classList.remove("sel"));
+    });
+
+    loadChannels();
+    loadQuota();
+
+    // Pré-remplissage depuis pins.html : /targets.html?channelId=UC...
+    const preset = new URLSearchParams(location.search).get("channelId");
+    if (preset) document.getElementById("cid").value = preset;
+  </script>
+  <script src="/nav.js"></script>
+</body>
+</html>

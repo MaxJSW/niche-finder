@@ -8,23 +8,7 @@
 </head>
 <body>
   <div class="app">
-    <aside class="side">
-      <div class="logo">
-        <span class="logo-dot"></span>
-        <span class="logo-txt">Niche Finder<small>Veille YouTube</small></span>
-      </div>
-      <nav class="nav">
-        <a href="/">🔍 Recherche</a>
-        <a href="/pins.html" class="active">📌 Épinglés</a>
-        <a href="#">🔥 Niches</a>
-        <a href="#">🕑 Historique</a>
-      </nav>
-      <div class="side-foot">
-        <nav class="nav">
-          <a href="#">⚙️ Réglages</a>
-        </nav>
-      </div>
-    </aside>
+    <aside class="side"></aside>
 
     <main class="main">
       <h1 class="page-title">Épinglés</h1>
@@ -157,7 +141,10 @@
             <td class="title"><a href="${c.channel_url}" target="_blank">${esc(c.channel_title)}</a>${c.handle ? `<div class="chan">${esc(c.handle)}</div>` : ""}</td>
             <td class="num">${fmt(c.subscribers)}</td>
             <td><span class="src">${origin}</span></td>
-            <td><a class="sblink" href="https://socialblade.com/youtube/channel/${c.channel_id}" target="_blank" rel="noopener">SocialBlade</a></td>
+            <td style="white-space:nowrap">
+              <a class="sblink" href="https://socialblade.com/youtube/channel/${c.channel_id}" target="_blank" rel="noopener">SB</a>
+              <a class="act" href="/targets.html?channelId=${c.channel_id}" title="Analyser cette chaîne (Channel Crawl)" style="text-decoration:none;display:inline-block">🎯</a>
+            </td>
           </tr>`;
       }).join("");
     }
@@ -203,5 +190,6 @@
 
     refresh();
   </script>
-</body>
+  <script src="/nav.js"></script>
+</body> 
 </html>

@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { scanKeyword } from './scan.js';   // la fonction déjà exportée de scan.js
 import { pinVideo, followChannel, recordScan } from './save.js';
+import { crawlChannel } from './channel.js';
+import { saveChannelCrawl } from './save-target.js';
 import { pool } from './db.js';
 
 dns.setDefaultResultOrder('ipv4first');
@@ -299,6 +301,135 @@ app.post('/api/keyword', async (req, res) => {
     res.json({ saved: keyword });
   } catch (err) {
     console.error('💥 /api/keyword :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ============================================================
+//  BLOC CONCURRENTIEL — chaînes cibles (distinct de la watchlist)
+// ============================================================
+
+// Crawl complet d'une chaîne : métadonnées + toutes ses vidéos + relevés datés.
+app.post('/api/target/crawl', async (req, res) => {
+  const channelId = (req.body?.channelId || '').trim();
+  if (!channelId) return res.status(400).json({ error: 'channelId requis.' });
+
+  const maxPages = Number(req.body?.maxPages) || undefined;
+
+  // Estimation haute du coût avant de lancer (garde-fou quota).
+  const q = await readQuota();
+  const estimate = 1 + (maxPages ?? 20) * 2;
+  if (q.used + estimate > QUOTA_LIMIT) {
+    return res.status(429).json({ error: `Quota insuffisant (${q.used}/${QUOTA_LIMIT}).` });
+  }
+
+  try {
+    console.log(`🎯 Crawl chaîne : ${channelId}`);
+    const crawl = await crawlChannel(channelId, { maxPages });
+    const saved = await saveChannelCrawl(crawl, { isSeed: true });
+
+    const quota = await addQuota(crawl.quotaUsed);
+    console.log(`✅ ${saved.videosSaved} vidéos · quota jour : ${quota.used}/${QUOTA_LIMIT}`);
+
+    res.json({
+      channel: crawl.channel,
+      videosSaved: saved.videosSaved,
+      truncated: crawl.truncated,
+      quotaUsed: crawl.quotaUsed,
+      quota,
+    });
+  } catch (err) {
+    console.error('💥 Crawl échoué :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Liste les chaînes cibles crawlées.
+app.get('/api/target/channels', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT
+        tc.channel_id, tc.channel_title, tc.handle, tc.subscribers,
+        tc.video_count, tc.total_views, tc.is_seed, tc.last_crawled_at,
+        (SELECT COUNT(*) FROM target_videos WHERE channel_id = tc.channel_id) AS crawled_videos
+      FROM target_channels tc
+      ORDER BY tc.last_crawled_at DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('💥 /api/target/channels :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Vidéos d'une chaîne cible, avec dernier relevé + delta de vues sur la période.
+// ?days=30 -> compare au relevé le plus proche d'il y a 30 jours.
+app.get('/api/target/videos/:channelId', async (req, res) => {
+  const { channelId } = req.params;
+  const days = Number(req.query.days) || 30;
+  const minDuration = Number(req.query.minDuration) || 120;
+
+  try {
+    // Comptage par format (sur TOUTES les vidéos stockées, filtre ou non).
+    const [[counts]] = await pool.query(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(duration_seconds <= 60) AS shorts,
+        SUM(duration_seconds > 60 AND duration_seconds < ?) AS courtes,
+        SUM(duration_seconds >= ?) AS longues
+      FROM target_videos
+      WHERE channel_id = ?
+    `, [minDuration, minDuration, channelId]);
+
+    const [rows] = await pool.query(`
+      SELECT
+        v.video_id, v.title, v.published_at, v.duration_seconds,
+        v.thumbnail, v.tags,
+        last.views, last.likes, last.comments, last.captured_date,
+        prev.views AS prev_views, prev.captured_date AS prev_date,
+        (last.views - prev.views) AS views_delta
+      FROM target_videos v
+      LEFT JOIN target_video_stats last ON last.id = (
+        SELECT id FROM target_video_stats
+        WHERE video_id = v.video_id
+        ORDER BY captured_date DESC LIMIT 1
+      )
+      LEFT JOIN target_video_stats prev ON prev.id = (
+        SELECT id FROM target_video_stats
+        WHERE video_id = v.video_id
+          AND captured_date <= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+        ORDER BY captured_date DESC LIMIT 1
+      )
+      WHERE v.channel_id = ? AND v.duration_seconds >= ?
+      ORDER BY last.views DESC
+    `, [days, channelId, minDuration]);
+
+    res.json({
+      counts: {
+        total:   Number(counts.total   || 0),
+        shorts:  Number(counts.shorts  || 0),
+        courtes: Number(counts.courtes || 0),
+        longues: Number(counts.longues || 0),
+      },
+      minDuration,
+      videos: rows,
+    });
+  } catch (err) {
+    console.error('💥 /api/target/videos :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Supprime une chaîne cible et tout son historique (CASCADE).
+app.delete('/api/target/channels/:channelId', async (req, res) => {
+  const { channelId } = req.params;
+  try {
+    await pool.query('DELETE FROM target_channels WHERE channel_id = ?', [channelId]);
+    console.log(`🗑️ Chaîne cible supprimée : ${channelId}`);
+    res.json({ deleted: channelId });
+  } catch (err) {
+    console.error('💥 DELETE /api/target/channels :', err.message);
     res.status(500).json({ error: err.message });
   }
 });

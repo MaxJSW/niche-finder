@@ -8,23 +8,7 @@
 </head>
 <body>
   <div class="app">
-    <aside class="side">
-      <div class="logo">
-        <span class="logo-dot"></span>
-        <span class="logo-txt">Niche Finder<small>Veille YouTube</small></span>
-      </div>
-      <nav class="nav">
-        <a href="/" class="active">🔍 Recherche</a>
-        <a href="/pins.html">📌 Épinglés</a>
-        <a href="#">🔥 Niches</a>
-        <a href="#">🕑 Historique</a>
-      </nav>
-      <div class="side-foot">
-        <nav class="nav">
-          <a href="#">⚙️ Réglages</a>
-        </nav>
-      </div>
-    </aside>
+    <aside class="side"></aside>
 
     <main class="main">
       <h1 class="page-title">Recherche</h1>
@@ -410,5 +394,6 @@
     document.getElementById("kwadd-btn").addEventListener("click", saveKeywordManual);
     document.getElementById("kwadd-input").addEventListener("keydown", e => { if (e.key === "Enter") saveKeywordManual(); });
   </script>
-</body>
+  <script src="/nav.js"></script>
+</body> 
 </html>
