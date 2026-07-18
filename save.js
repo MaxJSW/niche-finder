@@ -40,13 +40,14 @@ async function insertScan(conn, keywordId) {
 }
 
 // Suit une chaîne (upsert). source = 'video' ou 'manual'.
-async function upsertChannel(conn, { channelId, channelTitle, channelUrl }, source) {
+async function upsertChannel(conn, { channelId, channelTitle, handle, channelUrl }, source) {
   await conn.query(
-    `INSERT INTO channels (channel_id, channel_title, channel_url, source)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO channels (channel_id, channel_title, handle, channel_url, source)
+     VALUES (?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE channel_title = VALUES(channel_title),
+                             handle        = COALESCE(VALUES(handle), handle),
                              channel_url   = VALUES(channel_url)`,
-    [channelId, channelTitle, channelUrl, source]
+    [channelId, channelTitle, handle ?? null, channelUrl, source]
   );
 }
 
@@ -75,6 +76,7 @@ async function pinVideo(video, keyword) {
     await upsertChannel(conn, {
       channelId: video.channelId,
       channelTitle: video.channelTitle,
+      handle: video.handle,
       channelUrl: video.channelUrl,
     }, 'video');
 
@@ -128,6 +130,7 @@ async function followChannel(channel) {
     await upsertChannel(conn, {
       channelId: channel.channelId,
       channelTitle: channel.channelTitle,
+      handle: channel.handle,
       channelUrl: channel.channelUrl,
     }, 'manual');
 

@@ -88,25 +88,32 @@ async function scanKeyword(keyword, options = {}) {
     id: videoIds.join(','),
   });
 
-  // 3) channels.list — 1 u — batch (abonnés)
+ // 3) channels.list — 1 u — batch (abonnés + handle natif)
   const channelIds = [...new Set(videos.items.map(v => v.snippet.channelId))];
   const channels = await ytGet('channels', {
-    part: 'statistics',
+    part: 'snippet,statistics',
     id: channelIds.join(','),
   });
 
   // Table channelId -> abonnés (null si masqué par la chaîne)
   const subsByChannel = {};
+  // Table channelId -> handle "@xxx" (null si la chaîne n'en a pas)
+  const handleByChannel = {};
   for (const c of channels.items) {
     subsByChannel[c.id] = c.statistics.hiddenSubscriberCount
       ? null
       : Number(c.statistics.subscriberCount || 0);
+    const custom = c.snippet?.customUrl || null;
+    handleByChannel[c.id] = custom
+      ? (custom.startsWith('@') ? custom : `@${custom}`)
+      : null;
   }
 
   const records = videos.items.map(v => {
     const views = Number(v.statistics.viewCount || 0);
     const subs = subsByChannel[v.snippet.channelId] ?? null;
     const ratio = (subs && subs > 0) ? Number((views / subs).toFixed(2)) : null;
+    const handle = handleByChannel[v.snippet.channelId] ?? null;
 
     // Miniature : on prend la meilleure dispo (high -> medium -> default).
     const thumbs = v.snippet.thumbnails || {};
@@ -125,7 +132,10 @@ async function scanKeyword(keyword, options = {}) {
       thumbnail,                          // URL de la vignette (pour l'affichage)
       description: v.snippet.description || '', // description COMPLÈTE (via videos.list)
       videoUrl: `https://www.youtube.com/watch?v=${v.id}`,
-      channelUrl: `https://www.youtube.com/channel/${v.snippet.channelId}`,
+      handle,                                      // "@xxx" ou null
+      channelUrl: handle
+        ? `https://www.youtube.com/${handle}`      // URL native si dispo
+        : `https://www.youtube.com/channel/${v.snippet.channelId}`,
     };
   });
 

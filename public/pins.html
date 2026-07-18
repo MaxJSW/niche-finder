@@ -180,7 +180,7 @@
         const origin = c.source === "video" ? "via vidéo" : "manuel";
         return `
           <tr>
-            <td class="title"><a href="${c.channel_url}" target="_blank">${esc(c.channel_title)}</a></td>
+            <td class="title"><a href="${c.channel_url}" target="_blank">${esc(c.channel_title)}</a>${c.handle ? `<div class="chan">${esc(c.handle)}</div>` : ""}</td>
             <td class="num">${fmt(c.subscribers)}</td>
             <td><span class="src">${origin}</span></td>
             <td><a class="sblink" href="https://socialblade.com/youtube/channel/${c.channel_id}" target="_blank" rel="noopener">SocialBlade</a></td>

@@ -263,7 +263,7 @@
           <tr class="main">
             <td><img class="thumb" src="${v.thumbnail}" alt="" loading="lazy"></td>
             <td class="num"><span style="font-weight:600;font-size:1.05rem;color:${scoreColor}">${v.score}</span></td>
-            <td class="title"><a href="${v.videoUrl}" target="_blank">${esc(v.title)}</a><div class="chan"><a href="${v.channelUrl}" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">${esc(v.channelTitle)}</a> · <a href="https://socialblade.com/youtube/channel/${v.channelId}" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">SocialBlade</a></div></td>
+            <td class="title"><a href="${v.videoUrl}" target="_blank">${esc(v.title)}</a><div class="chan"><a href="${v.channelUrl}" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">${esc(v.channelTitle)}</a>${v.handle ? ` <span style="opacity:.6">${esc(v.handle)}</span>` : ""} · <a href="https://socialblade.com/youtube/channel/${v.channelId}" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">SocialBlade</a></div></td>
             <td class="num">${fmt(v.views)}</td>
             <td class="num">${fmt(v.subscribers)}</td>
             <td class="num ${cls}">${v.ratio ?? "—"}</td>
@@ -336,6 +336,7 @@
           const channel = {
             channelId: v.channelId,
             channelTitle: v.channelTitle,
+            handle: v.handle,
             channelUrl: v.channelUrl,
             subscribers: v.subscribers,
           };

@@ -250,7 +250,7 @@ app.get('/api/follows', async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT
-        c.channel_id, c.channel_title, c.channel_url, c.source, c.followed_at,
+        c.channel_id, c.channel_title, c.handle, c.channel_url, c.source, c.followed_at,
         cs.subscribers, cs.captured_at
       FROM channels c
       LEFT JOIN channel_stats cs ON cs.id = (
