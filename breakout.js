@@ -215,4 +215,4 @@ async function detectBreakouts(channels = [], options = {}) {
   return { breakouts, candidatesChecked: inspected.length, quotaUsed, thresholds };
 }
 
-export { detectBreakouts, preselect, THRESHOLDS };
+export { detectBreakouts, preselect, inspectChannel, THRESHOLDS };

@@ -17,6 +17,8 @@
     .delta.flat { color: var(--muted); }
     .tagline { color: var(--muted); font-size: 0.72rem; margin-top: 4px; }
     .backlink { color: var(--muted); font-size: 0.8rem; cursor: pointer; text-decoration: underline; }
+    .act.added { border-color: var(--green); background: rgba(74, 222, 128, 0.12); }
+    .act.added:hover { border-color: var(--green); }
   </style>
 </head>
 <body>
@@ -79,6 +81,7 @@
                 <th class="num" style="width:60px">Likes</th>
                 <th class="num" style="width:56px">Durée</th>
                 <th style="width:90px">Publiée</th>
+                <th style="width:44px"></th>
               </tr>
             </thead>
             <tbody id="vids"></tbody>
@@ -108,6 +111,15 @@
     }
 
     let CHANNELS = [];
+    let QUERIED = new Set();   // titres déjà envoyés vers la liste d'analyse
+
+    async function loadQueriedTitles() {
+      try {
+        const res = await fetch("/api/queries");
+        const rows = await res.json();
+        QUERIED = new Set(rows.map(r => r.query));
+      } catch { QUERIED = new Set(); }
+    }
 
     async function loadChannels() {
       const res = await fetch("/api/target/channels");
@@ -187,8 +199,41 @@
             <td class="num">${fmt(v.likes)}</td>
             <td class="num">${durTxt(v.duration_seconds)}</td>
             <td>${dateTxt(v.published_at)}</td>
+            <td class="num">
+              <button class="act${QUERIED.has(v.title) ? " added" : ""}" onclick="addToQueries(this, '${esc(v.title).replace(/'/g, "\\'")}', '${v.video_id}')" title="${QUERIED.has(v.title) ? "Déjà dans la liste d'analyse" : "Analyser ce titre"}">${QUERIED.has(v.title) ? "✅" : "➕"}</button>
+            </td>
           </tr>`;
       }).join("");
+    }
+
+    // Envoie un titre vers la liste d'analyse (page queries.html).
+    async function addToQueries(btn, title, videoId) {
+      btn.disabled = true;
+      const sel = document.querySelector(".chanrow.sel");
+      const channelId = sel ? sel.id.replace("ch-", "") : null;
+      const ch = channelId ? CHANNELS.find(c => c.channel_id === channelId) : null;
+
+      try {
+        const res = await fetch("/api/queries", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: title,
+            sourceVideoId: videoId,
+            sourceChannelId: channelId,
+            sourceChannelTitle: ch ? ch.channel_title : null,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur"); btn.disabled = false; return; }
+        QUERIED.add(title);
+        btn.textContent = "✅";
+        btn.classList.add("added");
+        btn.title = "Dans la liste d'analyse";
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+        btn.disabled = false;
+      }
     }
 
     async function doCrawl(channelId, maxPages, btn) {
@@ -259,7 +304,7 @@
       document.querySelectorAll(".chanrow").forEach(r => r.classList.remove("sel"));
     });
 
-    loadChannels();
+    loadQueriedTitles().then(loadChannels);
     loadQuota();
 
     // Pré-remplissage depuis pins.html : /targets.html?channelId=UC...

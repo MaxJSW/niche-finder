@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { scanKeyword } from './scan.js';   // la fonction déjà exportée de scan.js
 import { searchChannels } from './search-channels.js';
+import { buildQueries, findCompetitors } from './competitors.js';
+import { addQuery, listQueries, updateQuery, deleteQuery, getResults, runQuery } from './queries.js';
 import { pinVideo, followChannel, recordScan } from './save.js';
 import { crawlChannel } from './channel.js';
 import { saveChannelCrawl } from './save-target.js';
@@ -505,6 +507,138 @@ app.delete('/api/target/channels/:channelId', async (req, res) => {
     res.json({ deleted: channelId });
   } catch (err) {
     console.error('💥 DELETE /api/target/channels :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Propose les requêtes de recherche à partir des vidéos d'une chaîne cible. Gratuit.
+app.post('/api/competitors/queries', async (req, res) => {
+  const channelId = (req.body?.channelId || '').trim();
+  if (!channelId) return res.status(400).json({ error: 'channelId requis.' });
+
+  const count = Math.min(Math.max(Number(req.body?.count) || 5, 1), 10);
+
+  try {
+    const out = await buildQueries(channelId, { count });
+    res.json(out);
+  } catch (err) {
+    console.error('💥 /api/competitors/queries :', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Lance les recherches sur les requêtes validées et agrège les chaînes candidates.
+// Coût : 100u par requête + ~2u d'enrichissement.
+app.post('/api/competitors/find', async (req, res) => {
+  const channelId = (req.body?.channelId || '').trim();
+  const queries = Array.isArray(req.body?.queries)
+    ? req.body.queries.map(q => String(q).trim()).filter(Boolean).slice(0, 10)
+    : [];
+
+  if (!channelId) return res.status(400).json({ error: 'channelId requis.' });
+  if (!queries.length) return res.status(400).json({ error: 'Aucune requête sélectionnée.' });
+
+  const regionCode = req.body?.regionCode || null;
+  const relevanceLanguage = req.body?.relevanceLanguage || null;
+
+  const estimate = queries.length * 100 + 10;
+  const q = await readQuota();
+  if (q.used + estimate > QUOTA_LIMIT) {
+    return res.status(429).json({ error: `Quota insuffisant : ${estimate} u nécessaires, ${QUOTA_LIMIT - q.used} restants.` });
+  }
+
+  try {
+    console.log(`🔎 Concurrents de ${channelId} · ${queries.length} requête(s)`);
+    const out = await findCompetitors(channelId, { queries, regionCode, relevanceLanguage });
+
+    const quota = await addQuota(out.quotaUsed);
+    console.log(`✅ ${out.candidatesFound} candidats · quota jour : ${quota.used}/${QUOTA_LIMIT}`);
+
+    res.json({ ...out, quota });
+  } catch (err) {
+    console.error('💥 /api/competitors/find :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+//  LISTE DE TITRES À EXPLORER (saved_queries + query_results)
+// ============================================================
+
+// Ajoute un titre à la liste. Gratuit.
+app.post('/api/queries', async (req, res) => {
+  try {
+    const out = await addQuery(req.body || {});
+    console.log(`➕ Titre ajouté : "${out.query}"${out.duplicate ? ' (déjà présent)' : ''}`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 POST /api/queries :', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Liste les titres, avec le nombre de résultats stockés.
+app.get('/api/queries', async (req, res) => {
+  try {
+    res.json(await listQueries(req.query.status || null));
+  } catch (err) {
+    console.error('💥 GET /api/queries :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Résultats stockés d'un titre. Gratuit — pas de nouvel appel YouTube.
+app.get('/api/queries/:id/results', async (req, res) => {
+  try {
+    res.json(await getResults(Number(req.params.id)));
+  } catch (err) {
+    console.error('💥 GET /api/queries/results :', err.message);
+    res.status(404).json({ error: err.message });
+  }
+});
+
+// Lance la recherche YouTube sur un titre. ~102u.
+app.post('/api/queries/:id/run', async (req, res) => {
+  const id = Number(req.params.id);
+
+  const q = await readQuota();
+  if (q.used + 110 > QUOTA_LIMIT) {
+    return res.status(429).json({ error: `Quota insuffisant (${q.used}/${QUOTA_LIMIT}).` });
+  }
+
+  try {
+    const out = await runQuery(id, {
+      regionCode: req.body?.regionCode || null,
+      relevanceLanguage: req.body?.relevanceLanguage || null,
+      minDuration: Number(req.body?.minDuration) || 120,
+    });
+
+    const quota = await addQuota(out.quotaUsed);
+    console.log(`🔎 "${out.query}" → ${out.resultCount} chaînes · quota : ${quota.used}/${QUOTA_LIMIT}`);
+
+    res.json({ ...out, quota });
+  } catch (err) {
+    console.error('💥 POST /api/queries/run :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Modifie le statut ou la note d'un titre.
+app.patch('/api/queries/:id', async (req, res) => {
+  try {
+    res.json(await updateQuery(Number(req.params.id), req.body || {}));
+  } catch (err) {
+    console.error('💥 PATCH /api/queries :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Supprime un titre et ses résultats (CASCADE).
+app.delete('/api/queries/:id', async (req, res) => {
+  try {
+    res.json(await deleteQuery(Number(req.params.id)));
+  } catch (err) {
+    console.error('💥 DELETE /api/queries :', err.message);
     res.status(500).json({ error: err.message });
   }
 });

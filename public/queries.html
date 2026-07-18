@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Niche Finder — Analyse de titres</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .qadd { display: flex; gap: 8px; margin-bottom: 18px; }
+    .qadd input { flex: 1; background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 9px; font-size: 0.9rem; }
+    .qadd input:focus { outline: none; border-color: var(--accent); }
+
+    .qcard { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
+    .qcard.open { border-color: var(--accent); }
+    .qhead { display: flex; align-items: center; gap: 12px; padding: 14px 18px; cursor: pointer; }
+    .qhead:hover { background: var(--card2); }
+    .qtitle { flex: 1; font-weight: 500; font-size: 0.92rem; }
+    .qmeta { color: var(--muted); font-size: 0.74rem; margin-top: 3px; font-weight: 400; }
+    .qbadge { font-size: 0.7rem; padding: 3px 9px; border-radius: 999px; background: var(--card2); border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+    .qbadge.done { color: var(--green); border-color: var(--green); }
+    .qbody { border-top: 1px solid var(--border); display: none; }
+    .qcard.open .qbody { display: block; }
+    .qbody table { font-size: 0.82rem; }
+    .qacts { display: flex; gap: 6px; }
+
+    .ratio-cell { font-weight: 600; }
+    .r-hot { color: var(--green); }
+    .r-mid { color: var(--amber); }
+    .r-low { color: var(--muted); }
+    .agecell.young { color: var(--green); font-weight: 600; }
+    .qfilters { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .vidtitle { color: var(--muted); font-size: 0.76rem; margin-top: 3px; }
+    .vidtitle a { color: var(--muted); text-decoration: none; }
+    .vidtitle a:hover { color: var(--accent); text-decoration: underline; }
+    .act.added { border-color: var(--green); background: rgba(74, 222, 128, 0.12); }
+    .act.added:hover { border-color: var(--green); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side"></aside>
+
+    <main class="main">
+      <h1 class="page-title">Analyse de titres</h1>
+
+      <div class="qadd">
+        <input type="text" id="qinput" placeholder="Coller un titre à explorer…">
+        <button id="qaddBtn">Ajouter</button>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="lbl">Titres en liste</div><div class="val" id="s-total">—</div></div>
+        <div class="stat"><div class="lbl">À explorer</div><div class="val" id="s-todo" style="color:var(--amber)">—</div></div>
+        <div class="stat"><div class="lbl">Chaînes trouvées</div><div class="val" id="s-chan">—</div></div>
+        <div class="stat"><div class="lbl">Quota du jour</div><div class="val" id="s-quota">—</div></div>
+      </div>
+
+      <div class="qfilters">
+        <select id="f-status" class="selbox">
+          <option value="">Tous les titres</option>
+          <option value="todo">Jamais cherchés</option>
+          <option value="done">Déjà cherchés</option>
+          <option value="archived">Archivés</option>
+        </select>
+        <select id="f-sort" class="selbox" title="Tri des résultats">
+          <option value="ratio">Trier par ratio ↓</option>
+          <option value="views">Trier par vues ↓</option>
+          <option value="subs">Trier par abonnés ↑</option>
+          <option value="age">Trier par âge chaîne ↑</option>
+        </select>
+        <select id="f-subs" class="selbox" title="Plafond d'abonnés">
+          <option value="0">Tous abonnés</option>
+          <option value="10000">≤ 10k abonnés</option>
+          <option value="50000" selected>≤ 50k abonnés</option>
+          <option value="100000">≤ 100k abonnés</option>
+          <option value="500000">≤ 500k abonnés</option>
+        </select>
+        <select id="f-minratio" class="selbox" title="Ratio minimum">
+          <option value="0">Tout ratio</option>
+          <option value="5">Ratio ≥ 5</option>
+          <option value="20" selected>Ratio ≥ 20</option>
+          <option value="50">Ratio ≥ 50</option>
+          <option value="100">Ratio ≥ 100</option>
+        </select>
+        <select id="f-minviews" class="selbox" title="Plancher de vues — écarte les ratios gonflés par de tout petits chiffres">
+          <option value="0">Toutes vues</option>
+          <option value="1000">≥ 1k vues</option>
+          <option value="10000" selected>≥ 10k vues</option>
+          <option value="50000">≥ 50k vues</option>
+          <option value="100000">≥ 100k vues</option>
+        </select>
+      </div>
+
+      <div id="qlist"><div class="empty">Chargement…</div></div>
+    </main>
+  </div>
+
+  <script>
+    let QUERIES = [];
+    const RESULTS = new Map();   // queryId -> tableau de résultats
+    const OPEN = new Set();
+    let ADDED = new Set();       // titres déjà présents dans la liste
+
+    function fmt(n) {
+      if (n === null || n === undefined) return "—";
+      n = Number(n);
+      if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + "M";
+      if (n >= 1e3) return Math.round(n / 1e3) + "k";
+      return String(n);
+    }
+    function durTxt(s) {
+      if (s == null) return "—";
+      const m = Math.floor(s / 60), sec = s % 60;
+      return m + ":" + String(sec).padStart(2, "0");
+    }
+    function esc(t) {
+      const d = document.createElement("div"); d.textContent = t || ""; return d.innerHTML;
+    }
+    function dateTxt(iso) {
+      if (!iso) return "—";
+      return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "2-digit" });
+    }
+
+    // Ratio vues de la vidéo / abonnés de la chaîne : le signal de percée.
+    function ratioOf(r) {
+      const subs = Number(r.subscribers ?? 0);
+      const views = Number(r.video_views ?? 0);
+      if (!views) return null;
+      return Math.round(views / Math.max(subs, 1));
+    }
+
+    async function loadQueries() {
+      const status = document.getElementById("f-status").value;
+      const url = "/api/queries" + (status ? "?status=" + status : "");
+      const res = await fetch(url);
+      QUERIES = await res.json();
+      ADDED = new Set(QUERIES.map(q => q.query));
+
+      document.getElementById("s-total").textContent = QUERIES.length;
+      document.getElementById("s-todo").textContent = QUERIES.filter(q => !q.searched_at).length;
+      document.getElementById("s-chan").textContent = QUERIES.reduce((a, q) => a + Number(q.stored_results || 0), 0);
+
+      renderList();
+    }
+
+    function renderList() {
+      const box = document.getElementById("qlist");
+      if (!QUERIES.length) {
+        box.innerHTML = '<div class="empty">Aucun titre en liste. Colle un titre ci-dessus, ou ajoute-en depuis la page Channel Crawl.</div>';
+        return;
+      }
+
+      box.innerHTML = QUERIES.map(q => {
+        const done = Boolean(q.searched_at);
+        const isOpen = OPEN.has(q.id);
+        return `
+          <div class="qcard ${isOpen ? "open" : ""}" id="q-${q.id}">
+            <div class="qhead" onclick="toggleQuery(${q.id})">
+              <div class="qtitle">
+                ${esc(q.query)}
+                <div class="qmeta">
+                  ${q.source_channel_title ? "via " + esc(q.source_channel_title) + " · " : ""}
+                  ${done ? `cherché le ${dateTxt(q.searched_at)} · ${q.result_count} chaînes` : "jamais cherché"}
+                </div>
+              </div>
+              <span class="qbadge ${done ? "done" : ""}">${done ? "✓ " + q.stored_results : "à explorer"}</span>
+              <span class="qacts" onclick="event.stopPropagation()">
+                <button class="act" onclick="runQuery(${q.id}, this)" title="${done ? "Relancer" : "Lancer"} la recherche (~102 u)">${done ? "🔄" : "🔎"}</button>
+                <button class="act" onclick="archiveQuery(${q.id})" title="Archiver">📥</button>
+                <button class="act del" onclick="delQuery(${q.id})" title="Supprimer + résultats">🗑️</button>
+              </span>
+            </div>
+            <div class="qbody" id="body-${q.id}">
+              ${isOpen ? '<div class="empty">Chargement…</div>' : ""}
+            </div>
+          </div>`;
+      }).join("");
+
+      for (const id of OPEN) if (RESULTS.has(id)) renderResults(id);
+    }
+
+    async function toggleQuery(id) {
+      const card = document.getElementById("q-" + id);
+      if (OPEN.has(id)) {
+        OPEN.delete(id);
+        card.classList.remove("open");
+        return;
+      }
+      OPEN.add(id);
+      card.classList.add("open");
+
+      if (!RESULTS.has(id)) {
+        document.getElementById("body-" + id).innerHTML = '<div class="empty">Chargement…</div>';
+        try {
+          const res = await fetch(`/api/queries/${id}/results`);
+          const data = await res.json();
+          RESULTS.set(id, data.results || []);
+        } catch {
+          RESULTS.set(id, []);
+        }
+      }
+      renderResults(id);
+    }
+
+    function renderResults(id) {
+      const body = document.getElementById("body-" + id);
+      if (!body) return;
+
+      const all = RESULTS.get(id) || [];
+      const subsMax = +document.getElementById("f-subs").value;
+      const minRatio = +document.getElementById("f-minratio").value;
+      const minViews = +document.getElementById("f-minviews").value;
+      const sortBy = document.getElementById("f-sort").value;
+
+      let rows = all.filter(r => {
+        if (subsMax && Number(r.subscribers ?? 0) > subsMax) return false;
+        if (minViews && Number(r.video_views ?? 0) < minViews) return false;
+        if (minRatio && (ratioOf(r) ?? 0) < minRatio) return false;
+        return true;
+      });
+
+      const sorters = {
+        ratio: (a, b) => (ratioOf(b) ?? -1) - (ratioOf(a) ?? -1),
+        views: (a, b) => Number(b.video_views ?? 0) - Number(a.video_views ?? 0),
+        subs:  (a, b) => Number(a.subscribers ?? 0) - Number(b.subscribers ?? 0),
+        age:   (a, b) => (a.channel_age_months ?? 9999) - (b.channel_age_months ?? 9999),
+      };
+      rows.sort(sorters[sortBy] || sorters.ratio);
+
+      if (!rows.length) {
+        body.innerHTML = `<div class="empty">${all.length ? `Aucun résultat ne passe ces filtres (${all.length} au total). Assouplis les critères.` : "Aucun résultat stocké. Lance la recherche avec 🔎."}</div>`;
+        return;
+      }
+
+      body.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Chaîne / vidéo</th>
+              <th class="num" style="width:76px">Abonnés</th>
+              <th class="num" style="width:80px">Vues</th>
+              <th class="num" style="width:60px">Ratio</th>
+              <th class="num" style="width:58px">Durée</th>
+              <th class="num" style="width:66px">Âge ch.</th>
+              <th style="width:78px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => {
+              const ratio = ratioOf(r);
+              const rcls = ratio === null ? "r-low" : ratio >= 20 ? "r-hot" : ratio >= 5 ? "r-mid" : "r-low";
+              const age = r.channel_age_months;
+              const acls = age != null && age <= 12 ? "agecell young" : "agecell";
+              const chUrl = r.handle ? "https://www.youtube.com/" + r.handle : "https://www.youtube.com/channel/" + r.channel_id;
+              return `
+                <tr>
+                  <td class="title">
+                    <a href="${chUrl}" target="_blank" rel="noopener">${esc(r.channel_title)}</a>
+                    <div class="vidtitle"><a href="https://www.youtube.com/watch?v=${r.video_id}" target="_blank" rel="noopener">${esc(r.video_title)}</a></div>
+                  </td>
+                  <td class="num">${fmt(r.subscribers)}</td>
+                  <td class="num">${fmt(r.video_views)}</td>
+                  <td class="num ratio-cell ${rcls}">${ratio ?? "—"}</td>
+                  <td class="num">${durTxt(r.video_duration)}</td>
+                  <td class="num ${acls}">${age != null ? Math.round(age) + " m" : "—"}</td>
+                  <td class="num" style="white-space:nowrap">
+                    <a class="act" href="/targets.html?channelId=${r.channel_id}" title="Crawler cette chaîne" style="text-decoration:none;display:inline-block">🎯</a>
+                    <button class="act${ADDED.has(r.video_title) ? " added" : ""}" onclick="addTitle('${esc(r.video_title).replace(/'/g, "\\'")}', this)" title="${ADDED.has(r.video_title) ? "Déjà dans la liste" : "Ajouter ce titre à la liste"}">${ADDED.has(r.video_title) ? "✅" : "➕"}</button>
+                  </td>
+                </tr>`;
+            }).join("")}
+          </tbody>
+        </table>`;
+    }
+
+    async function addTitle(title, btn) {
+      if (btn) btn.disabled = true;
+      try {
+        const res = await fetch("/api/queries", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: title }),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur"); if (btn) btn.disabled = false; return; }
+        ADDED.add(title);
+        if (btn) {
+          btn.textContent = "✅";
+          btn.classList.add("added");
+          btn.title = "Dans la liste";
+          btn.disabled = false;
+        }
+        await loadQueries();
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function addFromInput() {
+      const input = document.getElementById("qinput");
+      const v = input.value.trim();
+      if (!v) { input.focus(); return; }
+      await addTitle(v);
+      input.value = "";
+    }
+
+    async function runQuery(id, btn) {
+      btn.disabled = true;
+      const label = btn.textContent;
+      btn.textContent = "…";
+      try {
+        const res = await fetch(`/api/queries/${id}/run`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur"); return; }
+        RESULTS.set(id, json.results || []);
+        OPEN.add(id);
+        if (json.quota) document.getElementById("s-quota").textContent = json.quota.used + " / " + json.quota.limit;
+        await loadQueries();
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    }
+
+    async function archiveQuery(id) {
+      await fetch(`/api/queries/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "archived" }),
+      });
+      loadQueries();
+    }
+
+    async function delQuery(id) {
+      if (!confirm("Supprimer ce titre et tous ses résultats ?")) return;
+      await fetch(`/api/queries/${id}`, { method: "DELETE" });
+      RESULTS.delete(id);
+      OPEN.delete(id);
+      loadQueries();
+    }
+
+    async function loadQuota() {
+      try {
+        const res = await fetch("/api/quota");
+        const q = await res.json();
+        document.getElementById("s-quota").textContent = q.used + " / " + q.limit;
+      } catch {}
+    }
+
+    document.getElementById("qaddBtn").addEventListener("click", addFromInput);
+    document.getElementById("qinput").addEventListener("keydown", e => { if (e.key === "Enter") addFromInput(); });
+    document.getElementById("f-status").addEventListener("change", loadQueries);
+    ["f-sort", "f-subs", "f-minratio", "f-minviews"].forEach(id =>
+      document.getElementById(id).addEventListener("change", () => { for (const oid of OPEN) renderResults(oid); })
+    );
+
+    loadQueries();
+    loadQuota();
+  </script>
+  <script src="/nav.js"></script>
+</body>
+</html>

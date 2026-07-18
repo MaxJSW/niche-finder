@@ -6,6 +6,7 @@ const LINKS = [
   { href: '/',             label: '🔍 Recherche' },
   { href: '/pins.html',    label: '📌 Épinglés' },
   { href: '/targets.html', label: '🎯 Channel Crawl' },
+  { href: '/queries.html', label: '🔬 Analyse titres' },
   { href: '#',             label: '🕑 Historique' },
 ];
 
