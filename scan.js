@@ -67,46 +67,89 @@ async function scanKeyword(keyword, options = {}) {
   const regionCode = options.regionCode ?? SEARCH_PARAMS.regionCode;
   const relevanceLanguage = options.relevanceLanguage ?? SEARCH_PARAMS.relevanceLanguage;
 
-  // 1) search.list — 100 u — jusqu'à 50 vidéos
-  const search = await ytGet('search', {
-    part: 'snippet',
-    q: keyword,
-    type: 'video',
-    order: SEARCH_PARAMS.order,
-    maxResults: SEARCH_PARAMS.maxResults,
-    publishedAfter: SEARCH_PARAMS.publishedAfter,
-    regionCode,
-    relevanceLanguage,
-  });
+  // 1) search.list — 100 u par tri.
+  // Scan simple : viewCount seul (102 u).
+  // Scan approfondi : viewCount + date + relevance (302 u) — attrape les chaînes
+  // récentes qui percent et que le tri par vues seul ne fait pas remonter.
+  const deep = options.deep === true;
+  const orders = deep ? ['viewCount', 'date', 'relevance'] : [SEARCH_PARAMS.order];
 
-  const videoIds = [...new Set((search.items || []).map(i => i.id?.videoId).filter(Boolean))];
-  if (videoIds.length === 0) return buildOutput(keyword, []);
+  const seen = new Set();
+  const foundBy = {};   // videoId -> ['viewCount', 'date'...] : sur quels tris il est sorti
 
-  // 2) videos.list — 1 u — batch (stats + durée)
-  const videos = await ytGet('videos', {
-    part: 'snippet,statistics,contentDetails',
-    id: videoIds.join(','),
-  });
+  for (const order of orders) {
+    const search = await ytGet('search', {
+      part: 'snippet',
+      q: keyword,
+      type: 'video',
+      order,
+      maxResults: SEARCH_PARAMS.maxResults,
+      publishedAfter: SEARCH_PARAMS.publishedAfter,
+      regionCode,
+      relevanceLanguage,
+    });
 
- // 3) channels.list — 1 u — batch (abonnés + handle natif)
+    for (const i of search.items || []) {
+      const vid = i.id?.videoId;
+      if (!vid) continue;
+      seen.add(vid);
+      (foundBy[vid] ||= []).push(order);
+    }
+  }
+
+  const videoIds = [...seen];
+  const searchQuota = orders.length * 100;
+  if (videoIds.length === 0) return buildOutput(keyword, [], { regionCode, relevanceLanguage, deep, orders }, searchQuota);
+
+  // 2) videos.list — 1 u par lot de 50 (stats + durée)
+  const videoItems = [];
+  for (let i = 0; i < videoIds.length; i += 50) {
+    const data = await ytGet('videos', {
+      part: 'snippet,statistics,contentDetails',
+      id: videoIds.slice(i, i + 50).join(','),
+    });
+    videoItems.push(...(data.items || []));
+  }
+  const videos = { items: videoItems };
+
+  // 3) channels.list — 1 u par lot de 50 (abonnés + handle + date de création)
   const channelIds = [...new Set(videos.items.map(v => v.snippet.channelId))];
-  const channels = await ytGet('channels', {
-    part: 'snippet,statistics',
-    id: channelIds.join(','),
-  });
+  const channelItems = [];
+  for (let i = 0; i < channelIds.length; i += 50) {
+    const data = await ytGet('channels', {
+      part: 'snippet,statistics',
+      id: channelIds.slice(i, i + 50).join(','),
+    });
+    channelItems.push(...(data.items || []));
+  }
+  const channels = { items: channelItems };
 
-  // Table channelId -> abonnés (null si masqué par la chaîne)
+// Table channelId -> abonnés (null si masqué par la chaîne)
   const subsByChannel = {};
   // Table channelId -> handle "@xxx" (null si la chaîne n'en a pas)
   const handleByChannel = {};
+  // Table channelId -> profil complet, consommé par la détection de breakout.
+  const channelInfo = {};
+
   for (const c of channels.items) {
-    subsByChannel[c.id] = c.statistics.hiddenSubscriberCount
+    const subs = c.statistics.hiddenSubscriberCount
       ? null
       : Number(c.statistics.subscriberCount || 0);
+    subsByChannel[c.id] = subs;
+
     const custom = c.snippet?.customUrl || null;
-    handleByChannel[c.id] = custom
-      ? (custom.startsWith('@') ? custom : `@${custom}`)
-      : null;
+    const handle = custom ? (custom.startsWith('@') ? custom : `@${custom}`) : null;
+    handleByChannel[c.id] = handle;
+
+    channelInfo[c.id] = {
+      channelId: c.id,
+      channelTitle: c.snippet?.title || null,
+      handle,
+      subscribers: subs,
+      videoCount: Number(c.statistics.videoCount || 0),
+      totalViews: Number(c.statistics.viewCount || 0),
+      channelCreatedAt: c.snippet?.publishedAt || null,
+    };
   }
 
   const records = videos.items.map(v => {
@@ -136,21 +179,34 @@ async function scanKeyword(keyword, options = {}) {
       channelUrl: handle
         ? `https://www.youtube.com/${handle}`      // URL native si dispo
         : `https://www.youtube.com/channel/${v.snippet.channelId}`,
+      foundBy: foundBy[v.id] || [],                // tris qui l'ont fait remonter
     };
   });
 
-return buildOutput(keyword, records, { regionCode, relevanceLanguage });
+  const quotaUsed = searchQuota
+    + Math.ceil(videoIds.length / 50)
+    + Math.ceil(channelIds.length / 50);
+
+  return buildOutput(
+    keyword,
+    records,
+    { regionCode, relevanceLanguage, deep, orders },
+    quotaUsed,
+    Object.values(channelInfo)
+  );
 }
 
 // Enveloppe le résultat avec les métadonnées (le schéma figé).
-function buildOutput(keyword, videos, used = {}) {
+// quotaUsed est désormais calculé (variable selon le nombre de tris et de lots).
+function buildOutput(keyword, videos, used = {}, quotaUsed = 102, channels = []) {
   return {
     keyword,
     fetchedAt: new Date().toISOString(),
     filters: { ...SEARCH_PARAMS, ...used },
-    quotaUsed: 102,
+    quotaUsed,
     count: videos.length,
     videos,
+    channels,   // profils de chaîne, pour la détection de breakout
   };
 }
 

@@ -30,6 +30,9 @@
           <option value="fr">Français</option>
           <option value="es">Espagnol</option>
         </select>
+        <label class="deepbox" title="3 tris fusionnés (viewCount + date + relevance) — ~306 u au lieu de ~102 u">
+          <input type="checkbox" id="f-deep"> Scan approfondi
+        </label>
         <button id="scanBtn">Rechercher</button>
       </div>
 
@@ -300,6 +303,7 @@
 
       const regionCode = document.getElementById("f-region").value;
       const relevanceLanguage = document.getElementById("f-lang").value;
+      const deep = document.getElementById("f-deep").checked;
 
       const btn = document.getElementById("scanBtn");
       btn.disabled = true;
@@ -309,7 +313,7 @@
         const res = await fetch("/api/scan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ keyword: kw, regionCode, relevanceLanguage }),
+          body: JSON.stringify({ keyword: kw, regionCode, relevanceLanguage, deep }),
         });
         const json = await res.json();
         if (!res.ok) { alert(json.error || "Erreur pendant le scan."); return; }
@@ -319,6 +323,7 @@
         render();
         loadQuota();
         loadKeywordBadges();
+        detectBreakouts(); 
       } catch (err) {
         alert("Erreur réseau : " + err.message);
       } finally {
@@ -389,11 +394,89 @@
     }
     load();
 
+    // --- Détection de chaînes breakout (lancée en arrière-plan après le scan) ---
+
+    let BREAKOUTS = [];
+
+    async function detectBreakouts() {
+      if (!DATA?.channels?.length) return;
+      try {
+        const res = await fetch("/api/breakouts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channels: DATA.channels }),
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        BREAKOUTS = json.breakouts || [];
+        if (json.quota) document.getElementById("s-quota").textContent = json.quota.used + " / " + json.quota.limit;
+        if (BREAKOUTS.length) showToast();
+      } catch {}
+    }
+
+    function showToast() {
+      const n = BREAKOUTS.length;
+      document.getElementById("toast-slot").innerHTML = `
+        <div class="toast" onclick="openBreakouts()">
+          <span class="ticon">🚀</span>
+          <span class="ttxt">
+            <b>${n} chaîne${n > 1 ? "s" : ""} breakout</b> détectée${n > 1 ? "s" : ""}
+            <div class="tsub">Peu de vidéos, forte audience, récente. Cliquer pour voir.</div>
+          </span>
+          <span class="tclose" onclick="event.stopPropagation();closeToast()">×</span>
+        </div>`;
+      setTimeout(closeToast, 15000);
+    }
+
+    function closeToast() {
+      document.getElementById("toast-slot").innerHTML = "";
+    }
+
+    function openBreakouts() {
+      closeToast();
+      const cards = BREAKOUTS.map(c => `
+        <div class="bocard">
+          <div class="bohead">
+            <span class="boname"><a href="${c.handle ? "https://www.youtube.com/" + c.handle : "https://www.youtube.com/channel/" + c.channelId}" target="_blank" rel="noopener">${esc(c.channelTitle)}</a></span>
+            ${c.handle ? `<span class="bohandle">${esc(c.handle)}</span>` : ""}
+            <span class="boscore">${c.breakoutScore}</span>
+          </div>
+          <div class="bogrid">
+            <div class="bo"><div class="bolbl">Abonnés</div><div class="boval">${fmt(c.subscribers)}</div></div>
+            <div class="bo"><div class="bolbl">Vidéos longues</div><div class="boval">${c.longCount}</div></div>
+            <div class="bo"><div class="bolbl">Shorts</div><div class="boval">${c.shortCount}</div></div>
+            <div class="bo"><div class="bolbl">Abo / vidéo</div><div class="boval">${fmt(c.density)}</div></div>
+            <div class="bo"><div class="bolbl">Vues / vidéo</div><div class="boval">${fmt(c.viewsPerVideo)}</div></div>
+            <div class="bo"><div class="bolbl">Âge</div><div class="boval">${c.ageMonths != null ? Math.round(c.ageMonths) + " mois" : "?"}</div></div>
+          </div>
+          <div class="boactions">
+            <a class="act" href="/targets.html?channelId=${c.channelId}" style="text-decoration:none;display:inline-block">🎯 Analyser</a>
+            <a class="act" href="https://socialblade.com/youtube/channel/${c.channelId}" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block">📊 SocialBlade</a>
+          </div>
+        </div>`).join("");
+
+      document.getElementById("modal-slot").innerHTML = `
+        <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+          <div class="modal">
+            <button class="mclose" onclick="closeModal()">×</button>
+            <h3>🚀 Chaînes breakout</h3>
+            <div class="msub">Forte audience sur peu de vidéos longues, et récentes — le signe d'une percée algorithmique en cours.</div>
+            ${cards}
+          </div>
+        </div>`;
+    }
+
+    function closeModal() {
+      document.getElementById("modal-slot").innerHTML = "";
+    }
+
     document.getElementById("scanBtn").addEventListener("click", doScan);
     document.getElementById("kw").addEventListener("keydown", e => { if (e.key === "Enter") doScan(); });
     document.getElementById("kwadd-btn").addEventListener("click", saveKeywordManual);
     document.getElementById("kwadd-input").addEventListener("keydown", e => { if (e.key === "Enter") saveKeywordManual(); });
   </script>
   <script src="/nav.js"></script>
+  <div id="toast-slot"></div>
+  <div id="modal-slot"></div>
 </body> 
 </html>

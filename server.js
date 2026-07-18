@@ -10,6 +10,7 @@ import { scanKeyword } from './scan.js';   // la fonction déjà exportée de sc
 import { pinVideo, followChannel, recordScan } from './save.js';
 import { crawlChannel } from './channel.js';
 import { saveChannelCrawl } from './save-target.js';
+import { detectBreakouts } from './breakout.js';
 import { pool } from './db.js';
 
 dns.setDefaultResultOrder('ipv4first');
@@ -73,16 +74,19 @@ app.post('/api/scan', async (req, res) => {
   // Options pilotées par l'UI (null/absent = mondial).
   const regionCode = req.body?.regionCode || null;
   const relevanceLanguage = req.body?.relevanceLanguage || null;
+  const deep = req.body?.deep === true;
 
   // Garde-fou : refuse si le quota du jour est déjà au plafond.
+  // Scan simple ~102 u, scan approfondi ~306 u (3 tris).
+  const estimate = deep ? 310 : 105;
   const q = await readQuota();
-  if (q.used + 102 > QUOTA_LIMIT) {
+  if (q.used + estimate > QUOTA_LIMIT) {
     return res.status(429).json({ error: `Quota journalier presque épuisé (${q.used}/${QUOTA_LIMIT}). Réessaie demain.` });
   }
 
   try {
     console.log(`🔍 Scan demandé : "${keyword}" (région: ${regionCode || 'mondial'}, langue: ${relevanceLanguage || 'toutes'})`);
-    const output = await scanKeyword(keyword, { regionCode, relevanceLanguage });
+    const output = await scanKeyword(keyword, { regionCode, relevanceLanguage, deep });
 
     // Sauvegarde comme le fait scan.js (historique + latest.json pour l'UI).
     const slug = keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -301,6 +305,44 @@ app.post('/api/keyword', async (req, res) => {
     res.json({ saved: keyword });
   } catch (err) {
     console.error('💥 /api/keyword :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// Détection de chaînes breakout sur les profils remontés par un scan.
+// Appelée en arrière-plan par l'UI juste après le rendu du tableau.
+// Coût : ~3 u par candidat inspecté (8 max), soit ~24 u.
+app.post('/api/breakouts', async (req, res) => {
+  const channels = req.body?.channels;
+  if (!Array.isArray(channels)) {
+    return res.status(400).json({ error: 'Champ "channels" (tableau) requis.' });
+  }
+
+  const q = await readQuota();
+  if (q.used + 30 > QUOTA_LIMIT) {
+    // Pas d'erreur bloquante : le scan a déjà réussi, on renonce juste à la détection.
+    return res.json({ breakouts: [], skipped: 'quota', quota: q });
+  }
+
+  try {
+    const result = await detectBreakouts(channels, {
+      thresholds: req.body?.thresholds || undefined,
+    });
+
+    const quota = await addQuota(result.quotaUsed);
+    if (result.breakouts.length) {
+      console.log(`🚀 ${result.breakouts.length} breakout(s) : ${result.breakouts.map(b => b.channelTitle).join(', ')}`);
+    }
+
+    res.json({
+      breakouts: result.breakouts,
+      candidatesChecked: result.candidatesChecked,
+      quotaUsed: result.quotaUsed,
+      quota,
+    });
+  } catch (err) {
+    console.error('💥 /api/breakouts :', err.message);
     res.status(500).json({ error: err.message });
   }
 });
