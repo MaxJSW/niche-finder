@@ -286,7 +286,7 @@ app.get('/api/follows', async (req, res) => {
 app.get('/api/keywords', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT keyword, scan_count, first_seen
+      SELECT keyword, scan_count, first_seen, auto_scan
       FROM keywords
       ORDER BY scan_count DESC, first_seen DESC
       LIMIT 15
@@ -317,6 +317,25 @@ app.post('/api/keyword', async (req, res) => {
   }
 });
 
+
+// Bascule le flag auto_scan d'un mot-clé (inclusion dans le scan automatique nocturne).
+app.post('/api/keyword/auto', async (req, res) => {
+  const keyword = (req.body?.keyword || '').trim();
+  const auto = req.body?.auto === true ? 1 : 0;
+  if (!keyword) return res.status(400).json({ error: 'Mot-clé manquant.' });
+  try {
+    const [r] = await pool.query(
+      'UPDATE keywords SET auto_scan = ? WHERE keyword = ?',
+      [auto, keyword]
+    );
+    if (!r.affectedRows) return res.status(404).json({ error: 'Mot-clé inconnu.' });
+    console.log(`${auto ? '🌙' : '⭕'} auto_scan ${auto ? 'activé' : 'désactivé'} : "${keyword}"`);
+    res.json({ keyword, auto_scan: auto });
+  } catch (err) {
+    console.error('💥 /api/keyword/auto :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Détection de chaînes breakout sur les profils remontés par un scan.
 // Appelée en arrière-plan par l'UI juste après le rendu du tableau.

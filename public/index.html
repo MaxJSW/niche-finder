@@ -418,15 +418,39 @@
         const kws = await res.json();
         const box = document.getElementById("kwbadges");
         if (!kws.length) { box.innerHTML = ""; return; }
-        box.innerHTML = kws.map(k =>
-          `<span class="kwbadge" onclick="scanFromBadge('${esc(k.keyword).replace(/'/g, "\\'")}')">${esc(k.keyword)}<span class="cnt">×${k.scan_count}</span></span>`
-        ).join("");
+        box.innerHTML = kws.map(k => {
+          const kwEsc = esc(k.keyword).replace(/'/g, "\\'");
+          const on = k.auto_scan == 1;
+          return `<span class="kwbadge">`
+            + `<span onclick="scanFromBadge('${kwEsc}')" style="cursor:pointer">${esc(k.keyword)}</span>`
+            + `<span class="cnt">×${k.scan_count}</span>`
+            + `<span onclick="event.stopPropagation();toggleAutoScan('${kwEsc}', this)" title="Scan automatique nocturne" style="cursor:pointer;margin-left:6px;opacity:${on ? 1 : 0.35}">🌙</span>`
+            + `</span>`;
+        }).join("");
       } catch {}
     }
 
     function scanFromBadge(keyword) {
       document.getElementById("kw").value = keyword;
       doScan();
+    }
+
+    async function toggleAutoScan(keyword, el) {
+      const on = el.style.opacity === "1";
+      el.style.opacity = "0.5";
+      try {
+        const res = await fetch("/api/keyword/auto", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keyword, auto: !on }),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur."); el.style.opacity = on ? "1" : "0.35"; return; }
+        el.style.opacity = json.auto_scan ? "1" : "0.35";
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+        el.style.opacity = on ? "1" : "0.35";
+      }
     }
 
     async function saveKeywordManual() {
