@@ -90,7 +90,8 @@ async function unclassified() {
   );
 
   const [targets] = await pool.query(
-    `SELECT tc.channel_id, tc.channel_title, tc.handle, tc.subscribers, tc.video_count
+    `SELECT tc.channel_id, tc.channel_title, tc.handle, tc.subscribers, tc.video_count,
+            (SELECT COUNT(*) FROM target_videos WHERE channel_id = tc.channel_id) AS crawled_videos
      FROM target_channels tc
      WHERE NOT EXISTS (
        SELECT 1 FROM theme_items ti
@@ -121,6 +122,7 @@ async function unclassified() {
       handle: r.handle,
       subscribers: r.subscribers != null ? Number(r.subscribers) : null,
       videoCount: r.video_count != null ? Number(r.video_count) : null,
+      crawledVideos: Number(r.crawled_videos),
     })),
     queries: queries.map(r => ({
       itemType: 'query', itemId: String(r.id), title: r.query,

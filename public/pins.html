@@ -87,6 +87,26 @@
     }
 
     // --- Sparklines ---
+    // --- Badges de thème ---
+    let BADGES = {};   // channelId -> [{id, name, color}]
+
+    async function loadBadges() {
+      try {
+        BADGES = await fetch("/api/themes/badges/channel").then(r => r.json());
+      } catch { BADGES = {}; }
+    }
+
+    function badgesHtml(channelId) {
+      const list = BADGES[channelId] || [];
+      if (!list.length) return "";
+      return list.map(t =>
+        `<a class="tbadge" href="/themes.html" title="Thème : ${esc(t.name)}"
+            ${t.color ? `style="border-color:${esc(t.color)};color:${esc(t.color)}"` : ""}
+         >${esc(t.name)}</a>`
+      ).join("");
+    }
+
+    // --- Sparklines ---
     let SPARKS = { videos: {}, channels: {} };
 
     // Trace une polyline SVG à partir d'une série de nombres.
@@ -194,7 +214,11 @@
         const origin = c.source === "video" ? "via vidéo" : "manuel";
         return `
           <tr>
-            <td class="title"><a href="${c.channel_url}" target="_blank">${esc(c.channel_title)}</a>${c.handle ? `<div class="chan">${esc(c.handle)}</div>` : ""}</td>
+            <td class="title">
+              <a href="${c.channel_url}" target="_blank">${esc(c.channel_title)}</a>
+              ${badgesHtml(c.channel_id)}
+              ${c.handle ? `<div class="chan">${esc(c.handle)}</div>` : ""}
+            </td>
             <td class="num">${fmt(c.subscribers)}</td>
             <td class="spark-cell" data-spark-channel="${c.channel_id}"><span class="spark-none">…</span></td>
             <td><span class="src">${origin}</span></td>
@@ -240,6 +264,7 @@
 
     // Recharge les trois listes.
     async function refresh() {
+      await loadBadges();
       await loadPins();
       await loadArchived();
       await loadFollows();

@@ -58,7 +58,7 @@
                 <th class="num" style="width:80px">Vidéos</th>
                 <th class="num" style="width:90px">Vues totales</th>
                 <th style="width:110px">Dernier crawl</th>
-                <th style="width:90px"></th>
+                <th style="width:130px"></th>
               </tr>
             </thead>
             <tbody id="chans"><tr><td colspan="6" class="empty">Chargement…</td></tr></tbody>
@@ -112,6 +112,63 @@
 
     let CHANNELS = [];
     let QUERIED = new Set();   // titres déjà envoyés vers la liste d'analyse
+    let FOLLOWED = new Set();  // chaînes présentes dans la watchlist perso
+
+    async function loadFollowedState() {
+      try {
+        const res = await fetch("/api/follows");
+        const chans = await res.json();
+        FOLLOWED = new Set(chans.map(c => c.channel_id));
+      } catch { FOLLOWED = new Set(); }
+    }
+
+    // Suivre / ne plus suivre — gratuit, les données viennent de target_channels.
+    async function toggleFollow(channelId, btn) {
+      btn.disabled = true;
+      const isFollowed = FOLLOWED.has(channelId);
+      try {
+        if (isFollowed) {
+          const res = await fetch("/api/unfollow", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ channelId }),
+          });
+          if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur"); }
+          FOLLOWED.delete(channelId);
+          btn.textContent = "👁️";
+          btn.classList.remove("added");
+          btn.title = "Suivre cette chaîne";
+        } else {
+          const c = CHANNELS.find(x => x.channel_id === channelId);
+          if (!c) throw new Error("Chaîne introuvable.");
+
+          const channel = {
+            channelId: c.channel_id,
+            channelTitle: c.channel_title,
+            handle: c.handle || null,
+            channelUrl: c.handle
+              ? "https://www.youtube.com/" + c.handle
+              : "https://www.youtube.com/channel/" + c.channel_id,
+            subscribers: c.subscribers != null ? Number(c.subscribers) : null,
+          };
+
+          const res = await fetch("/api/follow", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ channel }),
+          });
+          if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur"); }
+          FOLLOWED.add(channelId);
+          btn.textContent = "✅";
+          btn.classList.add("added");
+          btn.title = "Suivie — cliquer pour ne plus suivre";
+        }
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
 
     async function loadQueriedTitles() {
       try {
@@ -148,6 +205,7 @@
           <td>${dateTxt(c.last_crawled_at)}</td>
           <td style="white-space:nowrap">
             <button class="act" onclick="event.stopPropagation();recrawl('${c.channel_id}', this)" title="Re-crawler (met à jour les stats)">🔄</button>
+            <button class="act${FOLLOWED.has(c.channel_id) ? " added" : ""}" onclick="event.stopPropagation();toggleFollow('${c.channel_id}', this)" title="${FOLLOWED.has(c.channel_id) ? "Suivie — cliquer pour ne plus suivre" : "Suivre cette chaîne"}">${FOLLOWED.has(c.channel_id) ? "✅" : "👁️"}</button>
             <button class="act del" onclick="event.stopPropagation();delChannel('${c.channel_id}', this)" title="Supprimer + tout l'historique">🗑️</button>
           </td>
         </tr>`).join("");
@@ -304,7 +362,7 @@
       document.querySelectorAll(".chanrow").forEach(r => r.classList.remove("sel"));
     });
 
-    loadQueriedTitles().then(loadChannels);
+    Promise.all([loadQueriedTitles(), loadFollowedState()]).then(loadChannels);
     loadQuota();
 
     // Pré-remplissage depuis pins.html : /targets.html?channelId=UC...

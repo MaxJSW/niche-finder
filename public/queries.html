@@ -100,6 +100,108 @@
     const RESULTS = new Map();   // queryId -> tableau de résultats
     const OPEN = new Set();
     let ADDED = new Set();       // titres déjà présents dans la liste
+    let CRAWLED = new Set();     // chaînes déjà crawlées (target_channels)
+    let FOLLOWED = new Set();    // chaînes suivies (watchlist perso, table channels)
+
+    // Recharge la watchlist, pour l'état visuel du bouton 👁️.
+    async function loadFollowedState() {
+      try {
+        const res = await fetch("/api/follows");
+        const chans = await res.json();
+        FOLLOWED = new Set(chans.map(c => c.channel_id));
+      } catch { FOLLOWED = new Set(); }
+    }
+
+    // Suivre / ne plus suivre — gratuit, les données viennent déjà de query_results.
+    async function toggleFollow(channelId, btn) {
+      btn.disabled = true;
+      const isFollowed = FOLLOWED.has(channelId);
+      try {
+        if (isFollowed) {
+          const res = await fetch("/api/unfollow", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ channelId }),
+          });
+          if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur"); }
+          FOLLOWED.delete(channelId);
+          btn.textContent = "👁️";
+          btn.classList.remove("added");
+          btn.title = "Suivre cette chaîne";
+        } else {
+          // Retrouve la ligne de résultat pour récupérer titre / handle / abonnés.
+          let row = null;
+          for (const list of RESULTS.values()) {
+            row = list.find(r => r.channel_id === channelId);
+            if (row) break;
+          }
+          if (!row) throw new Error("Chaîne introuvable dans les résultats.");
+
+          const channel = {
+            channelId: row.channel_id,
+            channelTitle: row.channel_title,
+            handle: row.handle || null,
+            channelUrl: row.handle
+              ? "https://www.youtube.com/" + row.handle
+              : "https://www.youtube.com/channel/" + row.channel_id,
+            subscribers: row.subscribers != null ? Number(row.subscribers) : null,
+          };
+
+          const res = await fetch("/api/follow", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ channel }),
+          });
+          if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Erreur"); }
+          FOLLOWED.add(channelId);
+          btn.textContent = "✅";
+          btn.classList.add("added");
+          btn.title = "Suivie — cliquer pour ne plus suivre";
+        }
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // Recharge la liste des chaînes déjà crawlées, pour l'état visuel du bouton 🎯.
+    async function loadCrawledState() {
+      try {
+        const res = await fetch("/api/target/channels");
+        const chans = await res.json();
+        CRAWLED = new Set(chans.map(c => c.channel_id));
+      } catch { CRAWLED = new Set(); }
+    }
+
+    // Crawl direct depuis cette page — pas de navigation, on reste sur les résultats.
+    async function crawlChannel(channelId, btn) {
+      const already = CRAWLED.has(channelId);
+      if (already && !confirm("Cette chaîne est déjà crawlée. Rafraîchir ses vidéos ?")) return;
+
+      btn.disabled = true;
+      btn.textContent = "⏳";
+      try {
+        const res = await fetch("/api/target/crawl", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channelId }),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur"); btn.textContent = "🎯"; return; }
+
+        CRAWLED.add(channelId);
+        btn.classList.add("added");
+        btn.title = `${json.videosSaved} vidéos · ${json.quotaUsed} u — cliquer pour rafraîchir`;
+        if (json.quota) document.getElementById("s-quota").textContent = json.quota.used + " / " + json.quota.limit;
+        btn.textContent = "🎯";
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+        btn.textContent = "🎯";
+      } finally {
+        btn.disabled = false;
+      }
+    }
 
     function fmt(n) {
       if (n === null || n === undefined) return "—";
@@ -264,7 +366,12 @@
                   <td class="num">${durTxt(r.video_duration)}</td>
                   <td class="num ${acls}">${age != null ? Math.round(age) + " m" : "—"}</td>
                   <td class="num" style="white-space:nowrap">
-                    <a class="act" href="/targets.html?channelId=${r.channel_id}" title="Crawler cette chaîne" style="text-decoration:none;display:inline-block">🎯</a>
+                    <button class="act${CRAWLED.has(r.channel_id) ? " added" : ""}"
+                            onclick="crawlChannel('${r.channel_id}', this)"
+                            title="${CRAWLED.has(r.channel_id) ? "Déjà crawlée — cliquer pour rafraîchir" : "Crawler cette chaîne"}">🎯</button>
+                    <button class="act${FOLLOWED.has(r.channel_id) ? " added" : ""}"
+                            onclick="toggleFollow('${r.channel_id}', this)"
+                            title="${FOLLOWED.has(r.channel_id) ? "Déjà suivie — cliquer pour ne plus suivre" : "Suivre cette chaîne"}">${FOLLOWED.has(r.channel_id) ? "✅" : "👁️"}</button>
                     <button class="act${ADDED.has(r.video_title) ? " added" : ""}" onclick="addTitle('${esc(r.video_title).replace(/'/g, "\\'")}', this)" title="${ADDED.has(r.video_title) ? "Déjà dans la liste" : "Ajouter ce titre à la liste"}">${ADDED.has(r.video_title) ? "✅" : "➕"}</button>
                   </td>
                 </tr>`;
@@ -361,8 +468,11 @@
       document.getElementById(id).addEventListener("change", () => { for (const oid of OPEN) renderResults(oid); })
     );
 
-    loadQueries();
-    loadQuota();
+    (async () => {
+      await Promise.all([loadCrawledState(), loadFollowedState()]);
+      await loadQueries();
+      loadQuota();
+    })();
   </script>
   <script src="/nav.js"></script>
 </body>
