@@ -14,6 +14,7 @@ import { pinVideo, followChannel, recordScan } from './save.js';
 import { crawlChannel } from './channel.js';
 import { saveChannelCrawl } from './save-target.js';
 import { detectBreakouts } from './breakout.js';
+import { videoHistory, channelHistory, targetChannelHistory, sparklines } from './history.js';
 import { pool } from './db.js';
 
 dns.setDefaultResultOrder('ipv4first');
@@ -639,6 +640,54 @@ app.delete('/api/queries/:id', async (req, res) => {
     res.json(await deleteQuery(Number(req.params.id)));
   } catch (err) {
     console.error('💥 DELETE /api/queries :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+//  HISTORIQUE DES RELEVÉS (lecture seule, gratuit)
+// ============================================================
+
+// Toutes les séries d'un coup, pour les sparklines de pins.html. ?days=30
+app.get('/api/history/sparklines', async (req, res) => {
+  try {
+    const days = Number(req.query.days) || 30;
+    res.json(await sparklines(days));
+  } catch (err) {
+    console.error('💥 /api/history/sparklines :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Série détaillée d'une vidéo épinglée. ?days=90
+app.get('/api/history/video/:videoId', async (req, res) => {
+  try {
+    const days = Number(req.query.days) || 90;
+    res.json(await videoHistory(req.params.videoId, days));
+  } catch (err) {
+    console.error('💥 /api/history/video :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Série détaillée d'une chaîne suivie. ?days=90
+app.get('/api/history/channel/:channelId', async (req, res) => {
+  try {
+    const days = Number(req.query.days) || 90;
+    res.json(await channelHistory(req.params.channelId, days));
+  } catch (err) {
+    console.error('💥 /api/history/channel :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Série détaillée d'une chaîne cible (bloc concurrentiel). ?days=90
+app.get('/api/history/target/:channelId', async (req, res) => {
+  try {
+    const days = Number(req.query.days) || 90;
+    res.json(await targetChannelHistory(req.params.channelId, days));
+  } catch (err) {
+    console.error('💥 /api/history/target :', err.message);
     res.status(500).json({ error: err.message });
   }
 });

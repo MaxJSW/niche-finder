@@ -442,3 +442,8 @@ tr.hidden { display: none; }
 .density { color: var(--green); font-weight: 600; }
 .density.mid { color: var(--amber); }
 .density.low { color: var(--muted); }
+
+/* --- Sparklines (pins.html) --- */
+.spark-cell { text-align: center; padding: 4px 6px; }
+.spark { display: block; margin: 0 auto; overflow: visible; }
+.spark-none { color: #94a3b8; font-size: 12px; }

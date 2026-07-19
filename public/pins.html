@@ -21,6 +21,7 @@
               <th style="width:100px"></th>
               <th>Titre / chaîne</th>
               <th class="num" style="width:70px">Vues</th>
+              <th style="width:80px">30j</th>
               <th class="num" style="width:64px">Abonnés</th>
               <th class="num" style="width:56px">Ratio</th>
               <th class="num" style="width:56px">Durée</th>
@@ -40,6 +41,7 @@
             <tr>
               <th>Chaîne</th>
               <th class="num" style="width:80px">Abonnés</th>
+              <th style="width:80px">30j</th>
               <th style="width:80px">Origine</th>
               <th style="width:90px"></th>
             </tr>
@@ -84,6 +86,55 @@
       const d = document.createElement("div"); d.textContent = t || ""; return d.innerHTML;
     }
 
+    // --- Sparklines ---
+    let SPARKS = { videos: {}, channels: {} };
+
+    // Trace une polyline SVG à partir d'une série de nombres.
+    // Vert si la série monte, rouge si elle descend, gris si plate.
+    function sparkline(values) {
+      const pts = values.filter(v => v !== null && v !== undefined);
+      if (pts.length < 2) return '<span class="spark-none">—</span>';
+
+      const W = 72, H = 22, P = 2;
+      const min = Math.min(...pts), max = Math.max(...pts);
+      const span = max - min || 1;
+      const stepX = (W - P * 2) / (pts.length - 1);
+
+      const coords = pts.map((v, i) => {
+        const x = P + i * stepX;
+        const y = H - P - ((v - min) / span) * (H - P * 2);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+
+      const delta = pts[pts.length - 1] - pts[0];
+      const color = delta > 0 ? '#22c55e' : (delta < 0 ? '#ef4444' : '#94a3b8');
+      const last = coords.split(' ').pop().split(',');
+
+      return `<svg class="spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+        <polyline points="${coords}" fill="none" stroke="${color}" stroke-width="1.6"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="${last[0]}" cy="${last[1]}" r="2" fill="${color}"/>
+      </svg>`;
+    }
+
+    // Charge toutes les séries d'un coup, puis remplit les cellules déjà rendues.
+    async function loadSparklines() {
+      try {
+        const res = await fetch("/api/history/sparklines?days=30");
+        SPARKS = await res.json();
+      } catch { return; }
+
+      document.querySelectorAll("[data-spark-video]").forEach(cell => {
+        const serie = SPARKS.videos[cell.dataset.sparkVideo] || [];
+        cell.innerHTML = sparkline(serie.map(p => p.views));
+      });
+
+      document.querySelectorAll("[data-spark-channel]").forEach(cell => {
+        const serie = SPARKS.channels[cell.dataset.sparkChannel] || [];
+        cell.innerHTML = sparkline(serie.map(p => p.subscribers));
+      });
+    }
+
     // Ligne vidéo commune (épinglée ou archivée), avec boutons adaptés.
     function videoRow(v, archived) {
       const ratio = v.ratio === null ? "—" : Number(v.ratio);
@@ -101,6 +152,7 @@
             <div class="chan"><a class="sblink" href="https://www.youtube.com/channel/${v.channel_id}" target="_blank" rel="noopener">${esc(v.channel_title)}</a> · <a class="sblink" href="https://socialblade.com/youtube/channel/${v.channel_id}" target="_blank" rel="noopener">SocialBlade</a></div>
           </td>
           <td class="num">${fmt(v.views)}</td>
+          <td class="spark-cell" data-spark-video="${v.video_id}"><span class="spark-none">…</span></td>
           <td class="num">${fmt(v.subscribers)}</td>
           <td class="num ${cls}">${ratio}</td>
           <td class="num">${durTxt(v.duration_seconds)}</td>
@@ -115,7 +167,7 @@
       const tbody = document.getElementById("vids");
       tbody.innerHTML = vids.length
         ? vids.map(v => videoRow(v, false)).join("")
-        : '<tr><td colspan="7" class="empty">Aucune vidéo épinglée pour l\'instant.</td></tr>';
+        : '<tr><td colspan="8" class="empty">Aucune vidéo épinglée pour l\'instant.</td></tr>';
     }
 
     async function loadArchived() {
@@ -125,7 +177,7 @@
       const tbody = document.getElementById("arch");
       tbody.innerHTML = vids.length
         ? vids.map(v => videoRow(v, true)).join("")
-        : '<tr><td colspan="7" class="empty">Aucune vidéo archivée.</td></tr>';
+        : '<tr><td colspan="8" class="empty">Aucune vidéo archivée.</td></tr>';
     }
 
     async function loadFollows() {
@@ -133,13 +185,14 @@
       const chans = await res.json();
       document.getElementById("c-chan").textContent = chans.length ? `(${chans.length})` : "";
       const tbody = document.getElementById("chans");
-      if (!chans.length) { tbody.innerHTML = '<tr><td colspan="4" class="empty">Aucune chaîne suivie pour l\'instant.</td></tr>'; return; }
+      if (!chans.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">Aucune chaîne suivie pour l\'instant.</td></tr>'; return; }
       tbody.innerHTML = chans.map(c => {
         const origin = c.source === "video" ? "via vidéo" : "manuel";
         return `
           <tr>
             <td class="title"><a href="${c.channel_url}" target="_blank">${esc(c.channel_title)}</a>${c.handle ? `<div class="chan">${esc(c.handle)}</div>` : ""}</td>
             <td class="num">${fmt(c.subscribers)}</td>
+            <td class="spark-cell" data-spark-channel="${c.channel_id}"><span class="spark-none">…</span></td>
             <td><span class="src">${origin}</span></td>
             <td style="white-space:nowrap">
               <a class="sblink" href="https://socialblade.com/youtube/channel/${c.channel_id}" target="_blank" rel="noopener">SB</a>
@@ -186,6 +239,7 @@
       await loadPins();
       await loadArchived();
       await loadFollows();
+      loadSparklines(); 
     }
 
     refresh();
