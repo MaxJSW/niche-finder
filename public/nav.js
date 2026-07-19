@@ -7,7 +7,7 @@ const LINKS = [
   { href: '/pins.html',    label: '📌 Épinglés' },
   { href: '/targets.html', label: '🎯 Channel Crawl' },
   { href: '/queries.html', label: '🔬 Analyse titres' },
-  { href: '#',             label: '🕑 Historique' },
+  { href: '/history.html', label: '🕑 Historique' },
 ];
 
 const FOOT_LINKS = [

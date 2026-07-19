@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Niche Finder — Historique</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="side"></aside>
+
+    <main class="main">
+      <h1 class="page-title">Historique</h1>
+
+      <!-- Sélecteur : vidéo épinglée ou chaîne suivie -->
+      <div class="section">
+        <div class="hist-picker">
+          <select id="picker"><option>Chargement…</option></select>
+          <select id="range">
+            <option value="30">30 jours</option>
+            <option value="90" selected>90 jours</option>
+            <option value="365">1 an</option>
+          </select>
+        </div>
+        <div id="subject" class="hist-subject"></div>
+      </div>
+
+      <!-- Bande de mini-graphes : une carte par métrique, cliquable -->
+      <div class="section">
+        <div id="cards" class="hist-cards"></div>
+      </div>
+
+      <!-- Graphe principal -->
+      <div class="section">
+        <div class="tablecard">
+          <div id="chart" class="hist-chart"><div class="empty">Chargement…</div></div>
+        </div>
+      </div>
+
+      <!-- Tableau des relevés -->
+      <div class="section">
+        <h2>Relevés <span class="count" id="c-rows"></span></h2>
+        <div class="tablecard">
+          <table>
+            <thead id="thead"></thead>
+            <tbody id="rows"><tr><td class="empty">—</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script>
+    // --- Helpers de formatage ---
+    function fmt(n) {
+      if (n === null || n === undefined) return "—";
+      if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + "M";
+      if (n >= 1e3) return (n / 1e3).toFixed(1).replace(".", ",") + "k";
+      return String(Math.round(n * 100) / 100).replace(".", ",");
+    }
+    function fmtFull(n) {
+      if (n === null || n === undefined) return "—";
+      return n.toLocaleString("fr-FR");
+    }
+    function fmtDate(d) {
+      const [y, m, j] = d.split("-");
+      return `${j}/${m}`;
+    }
+    function esc(t) {
+      const el = document.createElement("div"); el.textContent = t || ""; return el.innerHTML;
+    }
+
+    // --- Mini-graphe des cartes (même logique que les sparklines de pins.html) ---
+    function miniChart(values, color) {
+      const pts = values.filter(v => v !== null && v !== undefined);
+      if (pts.length < 2) return "";
+      const W = 100, H = 32, P = 2;
+      const min = Math.min(...pts), max = Math.max(...pts);
+      const span = max - min || 1;
+      const stepX = (W - P * 2) / (pts.length - 1);
+      const coords = pts.map((v, i) =>
+        `${(P + i * stepX).toFixed(1)},${(H - P - ((v - min) / span) * (H - P * 2)).toFixed(1)}`
+      ).join(" ");
+      return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <polyline points="${coords}" fill="none" stroke="${color}" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`;
+    }
+
+    // --- Graphe principal : axes, grille, aire, points ---
+    function bigChart(serie, key, label, color) {
+      const pts = serie.filter(p => p[key] !== null && p[key] !== undefined);
+      if (pts.length < 2) {
+        return `<div class="empty">Pas assez de relevés pour tracer une courbe (${pts.length}).
+                Le job de veille tourne chaque matin — reviens dans quelques jours.</div>`;
+      }
+
+      const W = 900, H = 320;
+      const ML = 64, MR = 16, MT = 16, MB = 40;   // marges
+      const iw = W - ML - MR, ih = H - MT - MB;   // zone interne
+
+      const vals = pts.map(p => p[key]);
+      let min = Math.min(...vals), max = Math.max(...vals);
+      if (min === max) { min -= 1; max += 1; }    // série plate : évite la division par zéro
+      const pad = (max - min) * 0.08;
+      min -= pad; max += pad;
+
+      const x = i => ML + (i / (pts.length - 1)) * iw;
+      const y = v => MT + ih - ((v - min) / (max - min)) * ih;
+
+      // Grille horizontale : 5 paliers.
+      let grid = "";
+      for (let i = 0; i <= 4; i++) {
+        const v = min + ((max - min) / 4) * i;
+        const gy = y(v);
+        grid += `<line x1="${ML}" y1="${gy}" x2="${W - MR}" y2="${gy}"
+                       stroke="currentColor" stroke-opacity=".12" stroke-width="1"/>
+                 <text x="${ML - 10}" y="${gy + 4}" text-anchor="end"
+                       font-size="11" fill="currentColor" opacity=".45">${fmt(v)}</text>`;
+      }
+
+      // Étiquettes de dates : 6 max, réparties.
+      const every = Math.max(1, Math.ceil(pts.length / 6));
+      let xlabels = "";
+      pts.forEach((p, i) => {
+        if (i % every !== 0 && i !== pts.length - 1) return;
+        xlabels += `<text x="${x(i)}" y="${H - MB + 20}" text-anchor="middle"
+                          font-size="11" fill="currentColor" opacity=".45">${fmtDate(p.date)}</text>`;
+      });
+
+      const line = pts.map((p, i) => `${x(i).toFixed(1)},${y(p[key]).toFixed(1)}`).join(" ");
+      const area = `${ML},${MT + ih} ${line} ${x(pts.length - 1).toFixed(1)},${MT + ih}`;
+
+      const dots = pts.map((p, i) =>
+        `<circle cx="${x(i).toFixed(1)}" cy="${y(p[key]).toFixed(1)}" r="3.5"
+                 fill="#0f172a" stroke="${color}" stroke-width="2">
+           <title>${fmtDate(p.date)} — ${fmtFull(p[key])}</title>
+         </circle>`
+      ).join("");
+
+      return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">
+        <defs>
+          <linearGradient id="grad-${key}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="${color}" stop-opacity="0.18"/>
+            <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        ${grid}
+        <polygon points="${area}" fill="url(#grad-${key})"/>
+        <polyline points="${line}" fill="none" stroke="${color}" stroke-width="2.5"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+        ${dots}
+        ${xlabels}
+      </svg>`;
+    }
+  </script>
+  <script>
+    // --- État ---
+    let SUBJECT = null;   // { kind: 'video'|'channel', id, title, ... }
+    let SERIE = [];
+    let METRIC = null;    // clé de la métrique affichée en grand
+
+    // Métriques disponibles selon le type de sujet.
+    const METRICS = {
+      video: [
+        { key: 'views',       label: 'Vues',    color: '#6366f1' },
+        { key: 'ratio',       label: 'Ratio',   color: '#f59e0b' },
+        { key: 'subscribers', label: 'Abonnés', color: '#10b981' },
+      ],
+      channel: [
+        { key: 'subscribers', label: 'Abonnés', color: '#10b981' },
+      ],
+    };
+
+    // --- Remplissage du sélecteur ---
+    async function loadPicker() {
+      const [vids, chans] = await Promise.all([
+        fetch('/api/pins').then(r => r.json()),
+        fetch('/api/follows').then(r => r.json()),
+      ]);
+
+      const sel = document.getElementById('picker');
+      const gv = vids.map(v =>
+        `<option value="video:${v.video_id}" data-title="${esc(v.title)}"
+                 data-chan="${esc(v.channel_title)}">${esc(v.title)}</option>`).join('');
+      const gc = chans.map(c =>
+        `<option value="channel:${c.channel_id}" data-title="${esc(c.channel_title)}"
+                 >${esc(c.channel_title)}</option>`).join('');
+
+      sel.innerHTML =
+        (gv ? `<optgroup label="📌 Vidéos épinglées">${gv}</optgroup>` : '') +
+        (gc ? `<optgroup label="👁️ Chaînes suivies">${gc}</optgroup>` : '') ||
+        '<option value="">Rien à afficher</option>';
+
+      // Pré-sélection depuis l'URL : ?video=XXX ou ?channel=XXX
+      const p = new URLSearchParams(location.search);
+      const want = p.get('video') ? `video:${p.get('video')}`
+                 : p.get('channel') ? `channel:${p.get('channel')}` : null;
+      if (want && [...sel.options].some(o => o.value === want)) sel.value = want;
+    }
+
+    // --- Chargement de la série du sujet sélectionné ---
+    async function loadSerie() {
+      const sel = document.getElementById('picker');
+      const days = document.getElementById('range').value;
+      if (!sel.value) return;
+
+      const [kind, id] = sel.value.split(':');
+      const opt = sel.selectedOptions[0];
+      SUBJECT = { kind, id, title: opt.dataset.title, chan: opt.dataset.chan || null };
+
+      // Choix par défaut de la métrique, cohérent avec le type.
+      if (!METRICS[kind].some(m => m.key === METRIC)) METRIC = METRICS[kind][0].key;
+
+      const url = kind === 'video'
+        ? `/api/history/video/${encodeURIComponent(id)}?days=${days}`
+        : `/api/history/channel/${encodeURIComponent(id)}?days=${days}`;
+
+      document.getElementById('chart').innerHTML = '<div class="empty">Chargement…</div>';
+      try {
+        SERIE = await fetch(url).then(r => r.json());
+      } catch (err) {
+        document.getElementById('chart').innerHTML = `<div class="empty">Erreur : ${esc(err.message)}</div>`;
+        return;
+      }
+
+      renderSubject();
+      renderCards();
+      renderChart();
+      renderTable();
+    }
+
+    // --- Rendu : entête du sujet ---
+    function renderSubject() {
+      const el = document.getElementById('subject');
+      if (SUBJECT.kind === 'video') {
+        el.innerHTML = `<a href="https://www.youtube.com/watch?v=${SUBJECT.id}" target="_blank"
+                           rel="noopener">Ouvrir la vidéo ↗</a>
+                        ${SUBJECT.chan ? ' · ' + esc(SUBJECT.chan) : ''}
+                        · ${SERIE.length} relevé${SERIE.length > 1 ? 's' : ''}`;
+      } else {
+        el.innerHTML = `<a href="https://www.youtube.com/channel/${SUBJECT.id}" target="_blank"
+                           rel="noopener">Ouvrir la chaîne ↗</a>
+                        · <a href="https://socialblade.com/youtube/channel/${SUBJECT.id}"
+                             target="_blank" rel="noopener">SocialBlade ↗</a>
+                        · ${SERIE.length} relevé${SERIE.length > 1 ? 's' : ''}`;
+      }
+    }
+
+    // --- Rendu : bande de cartes ---
+    function renderCards() {
+      const box = document.getElementById('cards');
+      box.innerHTML = METRICS[SUBJECT.kind].map(m => {
+        const vals = SERIE.map(p => p[m.key]).filter(v => v !== null && v !== undefined);
+        const first = vals[0], last = vals[vals.length - 1];
+        const delta = (first != null && last != null) ? last - first : null;
+        const pct = (delta != null && first) ? (delta / first) * 100 : null;
+
+        const cls = delta == null ? 'flat' : (delta > 0 ? 'up' : (delta < 0 ? 'down' : 'flat'));
+        const sign = delta > 0 ? '+' : '';
+        const deltaTxt = delta == null
+          ? 'pas de comparaison'
+          : `${sign}${fmt(delta)}${pct != null ? ` (${sign}${pct.toFixed(1).replace('.', ',')} %)` : ''}`;
+
+        return `<div class="hist-card ${m.key === METRIC ? 'active' : ''}"
+                     onclick="setMetric('${m.key}')">
+          <div class="label">${m.label}</div>
+          <div class="value">${last != null ? fmtFull(last) : '—'}</div>
+          <div class="delta ${cls}">${deltaTxt}</div>
+          ${miniChart(vals, m.color)}
+        </div>`;
+      }).join('');
+    }
+
+    // --- Rendu : graphe principal ---
+    function renderChart() {
+      const m = METRICS[SUBJECT.kind].find(x => x.key === METRIC);
+      document.getElementById('chart').innerHTML = bigChart(SERIE, m.key, m.label, m.color);
+    }
+
+    // --- Rendu : tableau des relevés (le plus récent en haut) ---
+    function renderTable() {
+      const cols = METRICS[SUBJECT.kind];
+      document.getElementById('thead').innerHTML =
+        `<tr><th>Date</th>${cols.map(c => `<th class="num">${c.label}</th>`).join('')}
+             <th class="num">Δ ${cols[0].label}</th></tr>`;
+
+      document.getElementById('c-rows').textContent = SERIE.length ? `(${SERIE.length})` : '';
+
+      const body = document.getElementById('rows');
+      if (!SERIE.length) {
+        body.innerHTML = `<tr><td colspan="${cols.length + 2}" class="empty">Aucun relevé.</td></tr>`;
+        return;
+      }
+
+      const rev = [...SERIE].reverse();
+      body.innerHTML = rev.map((p, i) => {
+        const prev = rev[i + 1];
+        const k = cols[0].key;
+        const d = (prev && p[k] != null && prev[k] != null) ? p[k] - prev[k] : null;
+        const cls = d == null ? '' : (d > 0 ? 'delta up' : (d < 0 ? 'delta down' : ''));
+        const dTxt = d == null ? '—' : `${d > 0 ? '+' : ''}${fmtFull(d)}`;
+        return `<tr>
+          <td>${p.date.split('-').reverse().join('/')}</td>
+          ${cols.map(c => `<td class="num">${p[c.key] != null ? fmtFull(p[c.key]) : '—'}</td>`).join('')}
+          <td class="num ${cls}">${dTxt}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // --- Interactions ---
+    function setMetric(key) {
+      METRIC = key;
+      renderCards();
+      renderChart();
+      renderTable();
+    }
+
+    document.getElementById('picker').addEventListener('change', loadSerie);
+    document.getElementById('range').addEventListener('change', loadSerie);
+
+    (async () => {
+      await loadPicker();
+      await loadSerie();
+    })();
+  </script>
+  <script src="/nav.js"></script>
+
+</body>
+</html>
