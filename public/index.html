@@ -43,12 +43,8 @@
         <button id="scanBtn">Rechercher</button>
       </div>
 
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:20px">
-        <div class="kwbadges" id="kwbadges" style="margin-bottom:0"></div>
-        <span class="kwadd">
-          <input type="text" id="kwadd-input" placeholder="mot-clé…">
-          <button id="kwadd-btn" title="Mémoriser ce mot-clé">+</button>
-        </span>
+      <div style="margin-bottom:20px">
+        <button id="kwlist-btn" style="background:var(--card);border:1px solid var(--border);color:var(--muted);padding:7px 14px;border-radius:9px;font-size:0.84rem;cursor:pointer;">📋 Mots-clés enregistrés</button>
       </div>
 
       <div class="stats">
@@ -401,38 +397,13 @@
         await loadFollowedState();
         render();
         loadQuota();
-        loadKeywordBadges();
-        detectBreakouts(); 
+        detectBreakouts();
       } catch (err) {
         alert("Erreur réseau : " + err.message);
       } finally {
         btn.disabled = false;
         btn.textContent = "Rechercher";
       }
-    }
-
-    async function loadKeywordBadges() {
-      try {
-        const res = await fetch("/api/keywords");
-        if (!res.ok) return;
-        const kws = await res.json();
-        const box = document.getElementById("kwbadges");
-        if (!kws.length) { box.innerHTML = ""; return; }
-        box.innerHTML = kws.map(k => {
-          const kwEsc = esc(k.keyword).replace(/'/g, "\\'");
-          const on = k.auto_scan == 1;
-          return `<span class="kwbadge">`
-            + `<span onclick="scanFromBadge('${kwEsc}')" style="cursor:pointer">${esc(k.keyword)}</span>`
-            + `<span class="cnt">×${k.scan_count}</span>`
-            + `<span onclick="event.stopPropagation();toggleAutoScan('${kwEsc}', this)" title="Scan automatique nocturne" style="cursor:pointer;margin-left:6px;opacity:${on ? 1 : 0.35}">🌙</span>`
-            + `</span>`;
-        }).join("");
-      } catch {}
-    }
-
-    function scanFromBadge(keyword) {
-      document.getElementById("kw").value = keyword;
-      doScan();
     }
 
     async function toggleAutoScan(keyword, el) {
@@ -447,32 +418,11 @@
         const json = await res.json();
         if (!res.ok) { alert(json.error || "Erreur."); el.style.opacity = on ? "1" : "0.35"; return; }
         el.style.opacity = json.auto_scan ? "1" : "0.35";
+        const kw = ALL_KEYWORDS.find(k => k.keyword === keyword);
+        if (kw) kw.auto_scan = json.auto_scan;
       } catch (err) {
         alert("Erreur réseau : " + err.message);
         el.style.opacity = on ? "1" : "0.35";
-      }
-    }
-
-    async function saveKeywordManual() {
-      const input = document.getElementById("kwadd-input");
-      const kw = input.value.trim();
-      if (!kw) { input.focus(); return; }
-      const btn = document.getElementById("kwadd-btn");
-      btn.disabled = true;
-      try {
-        const res = await fetch("/api/keyword", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ keyword: kw }),
-        });
-        const json = await res.json();
-        if (!res.ok) { alert(json.error || "Erreur."); return; }
-        input.value = "";
-        loadKeywordBadges();
-      } catch (err) {
-        alert("Erreur réseau : " + err.message);
-      } finally {
-        btn.disabled = false;
       }
     }
 
@@ -500,7 +450,6 @@
       await loadFollowedState();
       render();
       loadQuota();
-      loadKeywordBadges();
     }
     load();
 
@@ -716,8 +665,166 @@
 
     document.getElementById("scanBtn").addEventListener("click", doScan);
     document.getElementById("kw").addEventListener("keydown", e => { if (e.key === "Enter") doScan(); });
-    document.getElementById("kwadd-btn").addEventListener("click", saveKeywordManual);
-    document.getElementById("kwadd-input").addEventListener("keydown", e => { if (e.key === "Enter") saveKeywordManual(); });
+
+   // --- Modale liste complète des mots-clés ---
+
+    let ALL_KEYWORDS = [];
+
+    async function openKwList() {
+      try {
+        const res = await fetch("/api/keywords");
+        if (!res.ok) return;
+        ALL_KEYWORDS = await res.json();
+      } catch { return; }
+
+      document.getElementById("modal-slot").innerHTML = `
+        <div class="modal-bg" onclick="if(event.target===this)closeKwModal()">
+          <div class="modal" style="max-width:580px;scrollbar-width:none">
+            <button class="mclose" onclick="closeKwModal()">×</button>
+            <h3>📋 Mots-clés enregistrés</h3>
+            <div class="msub">Utiliser → remplit le champ de recherche. 🌙 active le scan nocturne automatique.</div>
+
+            <div style="display:flex;gap:8px;margin-bottom:16px">
+              <input type="text" id="kwmodal-search" placeholder="Filtrer…"
+                style="flex:1;background:var(--card2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:0.84rem;"
+                oninput="renderKwModal()">
+              <input type="text" id="kwmodal-add" placeholder="Nouveau mot-clé…"
+                style="flex:1;background:var(--card2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:0.84rem;">
+              <button onclick="addKwFromModal()"
+                style="background:var(--accent);color:#fff;border:none;padding:0 16px;border-radius:8px;font-size:0.84rem;cursor:pointer;white-space:nowrap">+ Ajouter</button>
+            </div>
+
+            <div id="kwmodal-list"></div>
+          </div>
+        </div>`;
+
+      document.getElementById("kwmodal-search").focus();
+      document.getElementById("kwmodal-add").addEventListener("keydown", e => { if (e.key === "Enter") addKwFromModal(); });
+      renderKwModal();
+    }
+
+    function renderKwModal() {
+      const filter = (document.getElementById("kwmodal-search")?.value || "").toLowerCase();
+      const list = ALL_KEYWORDS.filter(k => k.keyword.toLowerCase().includes(filter));
+      const el = document.getElementById("kwmodal-list");
+      if (!el) return;
+
+      if (!list.length) {
+        el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:24px;font-size:0.84rem">Aucun résultat</div>';
+        return;
+      }
+
+      el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:0.84rem">
+        <thead>
+          <tr>
+            <th style="text-align:left;color:var(--muted);font-size:0.7rem;text-transform:uppercase;letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--border)">Mot-clé</th>
+            <th style="text-align:right;color:var(--muted);font-size:0.7rem;text-transform:uppercase;letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--border);width:60px">Scans</th>
+            <th style="text-align:center;color:var(--muted);font-size:0.7rem;text-transform:uppercase;letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--border);width:50px">🌙</th>
+            <th style="width:80px;border-bottom:1px solid var(--border)"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(k => {
+            const on = k.auto_scan == 1;
+            const kwEsc = esc(k.keyword).replace(/'/g, "\\'");
+            return `<tr style="border-bottom:1px solid var(--border)" onmouseenter="this.style.background='var(--card2)'" onmouseleave="this.style.background=''">
+              <td style="padding:9px 8px;font-weight:500">${esc(k.keyword)}</td>
+              <td style="padding:9px 8px;text-align:right;color:var(--muted)">${k.scan_count}</td>
+              <td style="padding:9px 8px;text-align:center">
+                <span onclick="toggleAutoScanModal('${kwEsc}', this)"
+                  title="Scan nocturne automatique"
+                  style="cursor:pointer;font-size:1rem;opacity:${on ? 1 : 0.3}">🌙</span>
+              </td>
+              <td style="padding:9px 8px;text-align:right;white-space:nowrap;display:flex;gap:6px;justify-content:flex-end">
+                <button onclick="selectKwFromModal('${kwEsc}')"
+                  style="background:var(--accent);color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:0.78rem;cursor:pointer">
+                  → Utiliser
+                </button>
+                <button onclick="deleteKwFromModal('${kwEsc}', this)"
+                  style="background:none;border:1px solid var(--border);color:var(--muted);padding:4px 8px;border-radius:6px;font-size:0.78rem;cursor:pointer"
+                  title="Supprimer ce mot-clé"
+                  onmouseenter="this.style.borderColor='var(--red)';this.style.color='var(--red)'"
+                  onmouseleave="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+                  🗑️
+                </button>
+              </td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>`;
+    }
+
+    function selectKwFromModal(keyword) {
+      document.getElementById("kw").value = keyword;
+      closeKwModal();
+      document.getElementById("kw").focus();
+    }
+
+    async function toggleAutoScanModal(keyword, el) {
+      const on = el.style.opacity === "1";
+      el.style.opacity = "0.5";
+      try {
+        const res = await fetch("/api/keyword/auto", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keyword, auto: !on }),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur."); el.style.opacity = on ? "1" : "0.3"; return; }
+        el.style.opacity = json.auto_scan ? "1" : "0.3";
+        const kw = ALL_KEYWORDS.find(k => k.keyword === keyword);
+        if (kw) kw.auto_scan = json.auto_scan;
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+        el.style.opacity = on ? "1" : "0.3";
+      }
+    }
+
+    async function addKwFromModal() {
+      const input = document.getElementById("kwmodal-add");
+      const kw = input.value.trim();
+      if (!kw) { input.focus(); return; }
+      try {
+        const res = await fetch("/api/keyword", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keyword: kw }),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur."); return; }
+        input.value = "";
+        // Recharge la liste complète.
+        const res2 = await fetch("/api/keywords");
+        if (res2.ok) ALL_KEYWORDS = await res2.json();
+        renderKwModal();
+        input.focus();
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+      }
+    }
+
+    async function deleteKwFromModal(keyword, btn) {
+      if (!confirm(`Supprimer définitivement "${keyword}" ?`)) return;
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/api/keyword/${encodeURIComponent(keyword)}`, {
+          method: "DELETE",
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur."); btn.disabled = false; return; }
+        ALL_KEYWORDS = ALL_KEYWORDS.filter(k => k.keyword !== keyword);
+        renderKwModal();
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+        btn.disabled = false;
+      }
+    }
+
+    function closeKwModal() {
+      document.getElementById("modal-slot").innerHTML = "";
+    }
+
+    document.getElementById("kwlist-btn").addEventListener("click", openKwList);
   </script>
   <script src="/nav.js"></script>
   <div id="toast-slot"></div>

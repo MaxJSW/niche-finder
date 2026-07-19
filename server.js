@@ -289,7 +289,7 @@ app.get('/api/keywords', async (req, res) => {
       SELECT keyword, scan_count, first_seen, auto_scan
       FROM keywords
       ORDER BY scan_count DESC, first_seen DESC
-      LIMIT 15
+      LIMIT 100
     `);
     res.json(rows);
   } catch (err) {
@@ -333,6 +333,21 @@ app.post('/api/keyword/auto', async (req, res) => {
     res.json({ keyword, auto_scan: auto });
   } catch (err) {
     console.error('💥 /api/keyword/auto :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Supprime définitivement un mot-clé (+ ses scans associés via FK).
+app.delete('/api/keyword/:keyword', async (req, res) => {
+  const keyword = decodeURIComponent(req.params.keyword).trim();
+  if (!keyword) return res.status(400).json({ error: 'Mot-clé manquant.' });
+  try {
+    const [r] = await pool.query('DELETE FROM keywords WHERE keyword = ?', [keyword]);
+    if (!r.affectedRows) return res.status(404).json({ error: 'Mot-clé introuvable.' });
+    console.log(`🗑️ Mot-clé supprimé : "${keyword}"`);
+    res.json({ deleted: keyword });
+  } catch (err) {
+    console.error('💥 DELETE /api/keyword :', err.message);
     res.status(500).json({ error: err.message });
   }
 });
