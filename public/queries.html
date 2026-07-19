@@ -102,6 +102,24 @@
     let ADDED = new Set();       // titres déjà présents dans la liste
     let CRAWLED = new Set();     // chaînes déjà crawlées (target_channels)
     let FOLLOWED = new Set();    // chaînes suivies (watchlist perso, table channels)
+    let BADGES = {};             // saved_queries.id -> [{id, name, color}]
+
+    async function loadBadges() {
+      try {
+        BADGES = await fetch("/api/themes/badges/query").then(r => r.json());
+      } catch { BADGES = {}; }
+    }
+
+    function badgesHtml(queryId) {
+      const list = BADGES[String(queryId)] || [];
+      if (!list.length) return "";
+      return list.map(t =>
+        `<a class="tbadge" href="/themes.html" title="Thème : ${esc(t.name)}"
+            onclick="event.stopPropagation()"
+            ${t.color ? `style="border-color:${esc(t.color)};color:${esc(t.color)}"` : ""}
+         >${esc(t.name)}</a>`
+      ).join("");
+    }
 
     // Recharge la watchlist, pour l'état visuel du bouton 👁️.
     async function loadFollowedState() {
@@ -259,7 +277,7 @@
           <div class="qcard ${isOpen ? "open" : ""}" id="q-${q.id}">
             <div class="qhead" onclick="toggleQuery(${q.id})">
               <div class="qtitle">
-                ${esc(q.query)}
+                ${esc(q.query)}${badgesHtml(q.id)}
                 <div class="qmeta">
                   ${q.source_channel_title ? "via " + esc(q.source_channel_title) + " · " : ""}
                   ${done ? `cherché le ${dateTxt(q.searched_at)} · ${q.result_count} chaînes` : "jamais cherché"}
@@ -469,7 +487,7 @@
     );
 
     (async () => {
-      await Promise.all([loadCrawledState(), loadFollowedState()]);
+      await Promise.all([loadCrawledState(), loadFollowedState(), loadBadges()]);
       await loadQueries();
       loadQuota();
     })();

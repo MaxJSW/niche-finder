@@ -113,6 +113,24 @@
     let CHANNELS = [];
     let QUERIED = new Set();   // titres déjà envoyés vers la liste d'analyse
     let FOLLOWED = new Set();  // chaînes présentes dans la watchlist perso
+    let BADGES = {};           // channelId -> [{id, name, color}]
+
+    async function loadBadges() {
+      try {
+        BADGES = await fetch("/api/themes/badges/target").then(r => r.json());
+      } catch { BADGES = {}; }
+    }
+
+    function badgesHtml(id) {
+      const list = BADGES[id] || [];
+      if (!list.length) return "";
+      return list.map(t =>
+        `<a class="tbadge" href="/themes.html" title="Thème : ${esc(t.name)}"
+            onclick="event.stopPropagation()"
+            ${t.color ? `style="border-color:${esc(t.color)};color:${esc(t.color)}"` : ""}
+         >${esc(t.name)}</a>`
+      ).join("");
+    }
 
     async function loadFollowedState() {
       try {
@@ -197,6 +215,7 @@
         <tr class="chanrow" id="ch-${c.channel_id}" onclick="showVideos('${c.channel_id}')">
           <td class="title">
             <a href="https://www.youtube.com/channel/${c.channel_id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(c.channel_title)}</a>
+            ${badgesHtml(c.channel_id)}
             ${c.handle ? `<div class="chan">${esc(c.handle)}</div>` : ""}
           </td>
           <td class="num">${fmt(c.subscribers)}</td>
@@ -362,7 +381,7 @@
       document.querySelectorAll(".chanrow").forEach(r => r.classList.remove("sel"));
     });
 
-    Promise.all([loadQueriedTitles(), loadFollowedState()]).then(loadChannels);
+    Promise.all([loadQueriedTitles(), loadFollowedState(), loadBadges()]).then(loadChannels);
     loadQuota();
 
     // Pré-remplissage depuis pins.html : /targets.html?channelId=UC...
