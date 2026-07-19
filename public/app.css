@@ -446,7 +446,9 @@ tr.hidden { display: none; }
 /* --- Sparklines (pins.html) --- */
 .spark-cell { text-align: center; padding: 4px 6px; }
 .spark { display: block; margin: 0 auto; overflow: visible; }
-.spark-none { color: #94a3b8; font-size: 12px; }
+.spark-none { color: var(--muted); font-size: 12px; }
+.spark-cell a { display: block; text-decoration: none; opacity: .9; transition: opacity .12s; }
+.spark-cell a:hover { opacity: 1; }
 
 /* --- Page Historique --- */
 .hist-picker { display: flex; gap: 10px; flex-wrap: wrap; }

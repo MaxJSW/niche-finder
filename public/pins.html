@@ -125,13 +125,17 @@
       } catch { return; }
 
       document.querySelectorAll("[data-spark-video]").forEach(cell => {
-        const serie = SPARKS.videos[cell.dataset.sparkVideo] || [];
-        cell.innerHTML = sparkline(serie.map(p => p.views));
+        const id = cell.dataset.sparkVideo;
+        const serie = SPARKS.videos[id] || [];
+        cell.innerHTML = `<a href="/history.html?video=${encodeURIComponent(id)}"
+                             title="Voir l'historique détaillé">${sparkline(serie.map(p => p.views))}</a>`;
       });
 
       document.querySelectorAll("[data-spark-channel]").forEach(cell => {
-        const serie = SPARKS.channels[cell.dataset.sparkChannel] || [];
-        cell.innerHTML = sparkline(serie.map(p => p.subscribers));
+        const id = cell.dataset.sparkChannel;
+        const serie = SPARKS.channels[id] || [];
+        cell.innerHTML = `<a href="/history.html?channel=${encodeURIComponent(id)}"
+                             title="Voir l'historique détaillé">${sparkline(serie.map(p => p.subscribers))}</a>`;
       });
     }
 
