@@ -16,6 +16,9 @@ import { saveChannelCrawl } from './save-target.js';
 import { detectBreakouts } from './breakout.js';
 import { videoHistory, channelHistory, targetChannelHistory, sparklines } from './history.js';
 import { listScans, keywordSummary, globalStats } from './scans-log.js';
+import { listThemes, createTheme, updateTheme, deleteTheme,
+         addItem, removeItem, moveItem, reorderItems } from './themes.js';
+import { themeContent, unclassified, themeBadges } from './themes-view.js';
 import { pool } from './db.js';
 
 dns.setDefaultResultOrder('ipv4first');
@@ -724,6 +727,119 @@ app.get('/api/log/stats', async (req, res) => {
   } catch (err) {
     console.error('💥 /api/log/stats :', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+//  THÈMES — groupement manuel (lecture/écriture en base, gratuit)
+// ============================================================
+
+app.get('/api/themes', async (req, res) => {
+  try {
+    res.json(await listThemes());
+  } catch (err) {
+    console.error('💥 GET /api/themes :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/themes', async (req, res) => {
+  try {
+    const out = await createTheme(req.body || {});
+    console.log(`🏷️  Thème créé : "${out.name}"`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 POST /api/themes :', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.patch('/api/themes/:id', async (req, res) => {
+  try {
+    res.json(await updateTheme(req.params.id, req.body || {}));
+  } catch (err) {
+    console.error('💥 PATCH /api/themes :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/themes/:id', async (req, res) => {
+  try {
+    const out = await deleteTheme(req.params.id);
+    console.log(`🗑️  Thème supprimé : ${req.params.id}`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 DELETE /api/themes :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Contenu détaillé d'un thème (chaînes + cibles + titres).
+app.get('/api/themes/:id/content', async (req, res) => {
+  try {
+    res.json(await themeContent(req.params.id));
+  } catch (err) {
+    console.error('💥 /api/themes/content :', err.message);
+    res.status(404).json({ error: err.message });
+  }
+});
+
+// Éléments non encore rangés — panneau source du drag and drop.
+app.get('/api/themes/unclassified', async (req, res) => {
+  try {
+    res.json(await unclassified());
+  } catch (err) {
+    console.error('💥 /api/themes/unclassified :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Badges : { itemId: [{id, name, color}] } pour un type donné.
+app.get('/api/themes/badges/:itemType', async (req, res) => {
+  try {
+    res.json(await themeBadges(req.params.itemType));
+  } catch (err) {
+    console.error('💥 /api/themes/badges :', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// --- Éléments ---
+
+app.post('/api/themes/items', async (req, res) => {
+  try {
+    res.json(await addItem(req.body || {}));
+  } catch (err) {
+    console.error('💥 POST /api/themes/items :', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/themes/items', async (req, res) => {
+  try {
+    res.json(await removeItem(req.body || {}));
+  } catch (err) {
+    console.error('💥 DELETE /api/themes/items :', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/themes/items/move', async (req, res) => {
+  try {
+    res.json(await moveItem(req.body || {}));
+  } catch (err) {
+    console.error('💥 /api/themes/items/move :', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/themes/:id/reorder', async (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    res.json(await reorderItems(req.params.id, items));
+  } catch (err) {
+    console.error('💥 /api/themes/reorder :', err.message);
+    res.status(400).json({ error: err.message });
   }
 });
 

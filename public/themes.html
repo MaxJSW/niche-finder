@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Niche Finder — Thèmes</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    /* --- Plan de travail kanban --- */
+    .board { display: flex; gap: 14px; align-items: flex-start; overflow-x: auto; padding-bottom: 12px; }
+    .board::-webkit-scrollbar { height: 10px; }
+    .board::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+
+    .col {
+      flex: 0 0 280px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      display: flex; flex-direction: column;
+      max-height: calc(100vh - 190px);
+    }
+    .col.unclassified { border-style: dashed; }
+
+    .colhead {
+      display: flex; align-items: center; gap: 8px;
+      padding: 12px 14px; border-bottom: 1px solid var(--border);
+      background: var(--card2); border-radius: 12px 12px 0 0;
+    }
+    .coldot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; background: var(--accent); }
+    .colname { flex: 1; font-weight: 600; font-size: 0.88rem; }
+    .colcount { color: var(--muted); font-size: 0.74rem; }
+    .colacts { display: flex; gap: 4px; }
+
+    .droplist { flex: 1; overflow-y: auto; padding: 10px; min-height: 90px; }
+    .droplist::-webkit-scrollbar { width: 8px; }
+    .droplist::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .item {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 9px 11px;
+      margin-bottom: 7px;
+      cursor: grab;
+      font-size: 0.8rem;
+      line-height: 1.35;
+    }
+    .item:active { cursor: grabbing; }
+    .item:hover { border-color: var(--muted); }
+    .item .iname { font-weight: 500; }
+    .item .imeta { color: var(--muted); font-size: 0.7rem; margin-top: 3px; display: flex; gap: 6px; align-items: center; }
+
+    .itype { font-size: 0.62rem; padding: 2px 6px; border-radius: 5px; border: 1px solid var(--border); white-space: nowrap; }
+    .itype.channel { color: var(--green); border-color: var(--green); }
+    .itype.target  { color: #60a5fa; border-color: #60a5fa; }
+    .itype.query   { color: var(--amber); border-color: var(--amber); }
+
+    /* États SortableJS */
+    .sortable-ghost { opacity: 0.35; }
+    .sortable-drag  { opacity: 0.95; }
+    .droplist.over  { background: var(--accent-soft); }
+
+    .colempty { color: var(--muted); font-size: 0.76rem; text-align: center; padding: 22px 10px; }
+
+    .newcol {
+      flex: 0 0 220px;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .newcol input {
+      background: var(--card); border: 1px solid var(--border); color: var(--text);
+      padding: 8px 11px; border-radius: 8px; font-size: 0.84rem; font-family: inherit;
+    }
+    .newcol input:focus { outline: none; border-color: var(--accent); }
+    .newcol button {
+      background: var(--accent); color: #fff; border: none;
+      padding: 8px; border-radius: 8px; cursor: pointer; font-size: 0.84rem; font-family: inherit;
+    }
+    .newcol button:hover { filter: brightness(1.1); }
+
+    .typefilter { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side"></aside>
+
+    <main class="main">
+      <h1 class="page-title">Thèmes</h1>
+
+      <div class="typefilter">
+        <label class="deepbox"><input type="checkbox" class="f-type" value="channel" checked> 👁️ Chaînes suivies</label>
+        <label class="deepbox"><input type="checkbox" class="f-type" value="target" checked> 🎯 Chaînes crawlées</label>
+        <label class="deepbox"><input type="checkbox" class="f-type" value="query" checked> 🔬 Titres</label>
+      </div>
+
+      <div class="board" id="board"><div class="empty">Chargement…</div></div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+  <script>
+    let THEMES = [];
+    let CONTENT = new Map();   // themeId -> { channels, targets, queries }
+    let UNCLASS = { channels: [], targets: [], queries: [] };
+
+    function esc(t) {
+      const d = document.createElement("div"); d.textContent = t || ""; return d.innerHTML;
+    }
+    function fmt(n) {
+      if (n === null || n === undefined) return "—";
+      if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + "M";
+      if (n >= 1e3) return Math.round(n / 1e3) + "k";
+      return String(n);
+    }
+
+    // Types actuellement visibles (cases à cocher en haut).
+    function activeTypes() {
+      return new Set([...document.querySelectorAll(".f-type:checked")].map(c => c.value));
+    }
+
+    // Fusionne les trois listes d'un bloc, filtre par type, puis regroupe les
+    // chaînes présentes à la fois dans channels et target_channels : même
+    // channel_id = une seule carte portant les deux liaisons.
+    function flatten(block) {
+      const types = activeTypes();
+      const out = [];
+      if (types.has("channel")) out.push(...(block.channels || []));
+      if (types.has("target"))  out.push(...(block.targets  || []));
+      if (types.has("query"))   out.push(...(block.queries  || []));
+
+      const merged = [];
+      const byId = new Map();   // channel_id -> carte déjà créée
+
+      for (const it of out) {
+        // Les titres ne fusionnent jamais : leur itemId est un id de saved_queries.
+        if (it.itemType === "query") { merged.push({ ...it, links: [it.itemType] }); continue; }
+
+        const seen = byId.get(it.itemId);
+        if (!seen) {
+          const card = { ...it, links: [it.itemType] };
+          byId.set(it.itemId, card);
+          merged.push(card);
+          continue;
+        }
+
+        // Doublon : on enrichit la carte existante au lieu d'en ajouter une.
+        seen.links.push(it.itemType);
+        if (it.itemType === "target") {
+          seen.crawledVideos = it.crawledVideos;
+          seen.videoCount = it.videoCount;
+        }
+        if (seen.subscribers == null) seen.subscribers = it.subscribers;
+        if (!seen.handle) seen.handle = it.handle;
+        if (seen.position == null) seen.position = it.position;
+      }
+
+      return merged.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    }
+
+    // Carte déplaçable. data-* porte l'identité de l'élément pour le drop.
+    function itemCard(it) {
+      const links = it.links || [it.itemType];
+      const LABELS = { channel: "suivie", target: "crawlée", query: "titre" };
+      const badges = links.map(t => `<span class="itype ${t}">${LABELS[t]}</span>`).join("");
+
+      let meta = "";
+      if (links.includes("query")) {
+        meta = it.searchedAt ? `${it.resultCount ?? 0} chaînes trouvées` : "jamais cherché";
+      } else {
+        meta = `${fmt(it.subscribers)} abo`;
+        if (it.handle) meta += " · " + esc(it.handle);
+        if (links.includes("target")) meta += ` · ${it.crawledVideos ?? 0} vidéos`;
+      }
+
+      // data-links porte toutes les liaisons à déplacer ensemble lors d'un drop.
+      return `<div class="item" data-type="${it.itemType}" data-id="${esc(String(it.itemId))}"
+                   data-links="${links.join(",")}">
+        <div class="iname">${esc(it.title)}</div>
+        <div class="imeta">
+          ${badges}
+          <span>${meta}</span>
+        </div>
+      </div>`;
+    }
+
+    function colHtml(theme, items) {
+      const dot = theme.color ? `style="background:${esc(theme.color)}"` : "";
+      return `<div class="col" data-theme="${theme.id}">
+        <div class="colhead">
+          <span class="coldot" ${dot}></span>
+          <span class="colname">${esc(theme.name)}</span>
+          <span class="colcount">${items.length}</span>
+          <span class="colacts">
+            <button class="act" onclick="renameTheme(${theme.id})" title="Renommer">✏️</button>
+            <button class="act del" onclick="delTheme(${theme.id})" title="Supprimer le thème">🗑️</button>
+          </span>
+        </div>
+        <div class="droplist" data-theme="${theme.id}">
+          ${items.length ? items.map(itemCard).join("") : '<div class="colempty">Glisse des éléments ici</div>'}
+        </div>
+      </div>`;
+    }
+
+    function render() {
+      const board = document.getElementById("board");
+      const unItems = flatten(UNCLASS);
+
+      const cols = THEMES.map(t => colHtml(t, flatten(CONTENT.get(t.id) || {}))).join("");
+
+      board.innerHTML = `
+        <div class="col unclassified" data-theme="0">
+          <div class="colhead">
+            <span class="coldot" style="background:var(--muted)"></span>
+            <span class="colname">Non classés</span>
+            <span class="colcount">${unItems.length}</span>
+          </div>
+          <div class="droplist" data-theme="0">
+            ${unItems.length ? unItems.map(itemCard).join("") : '<div class="colempty">Tout est rangé 🎉</div>'}
+          </div>
+        </div>
+        ${cols}
+        <div class="newcol">
+          <input id="newtheme" placeholder="Nouveau thème…" maxlength="120">
+          <button onclick="addTheme()">+ Créer</button>
+        </div>`;
+
+      document.getElementById("newtheme")
+        .addEventListener("keydown", e => { if (e.key === "Enter") addTheme(); });
+
+      mountSortable();   // défini dans le bloc suivant
+    }
+
+    // --- Chargement ---
+    async function loadAll() {
+      THEMES = await fetch("/api/themes").then(r => r.json());
+      UNCLASS = await fetch("/api/themes/unclassified").then(r => r.json());
+
+      CONTENT = new Map();
+      await Promise.all(THEMES.map(async t => {
+        try {
+          const c = await fetch(`/api/themes/${t.id}/content`).then(r => r.json());
+          CONTENT.set(t.id, c);
+        } catch { CONTENT.set(t.id, { channels: [], targets: [], queries: [] }); }
+      }));
+
+      render();
+    }
+
+    // --- Actions sur les thèmes ---
+    async function addTheme() {
+      const input = document.getElementById("newtheme");
+      const name = input.value.trim();
+      if (!name) { input.focus(); return; }
+      try {
+        const res = await fetch("/api/themes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        const j = await res.json();
+        if (!res.ok) { alert(j.error || "Erreur"); return; }
+        await loadAll();
+      } catch (err) { alert("Erreur réseau : " + err.message); }
+    }
+
+    async function renameTheme(id) {
+      const t = THEMES.find(x => x.id === id);
+      const name = prompt("Nouveau nom du thème :", t?.name || "");
+      if (name === null) return;
+      if (!name.trim()) return;
+      await fetch(`/api/themes/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      await loadAll();
+    }
+
+    async function delTheme(id) {
+      const t = THEMES.find(x => x.id === id);
+      if (!confirm(`Supprimer le thème « ${t?.name} » ?\nLes éléments retourneront dans "Non classés".`)) return;
+      await fetch(`/api/themes/${id}`, { method: "DELETE" });
+      await loadAll();
+    }
+
+    document.querySelectorAll(".f-type").forEach(c => c.addEventListener("change", render));
+  </script>
+  <script>
+    let SORTABLES = [];
+
+    // (Re)monte SortableJS sur toutes les colonnes après chaque rendu.
+    function mountSortable() {
+      SORTABLES.forEach(s => s.destroy());
+      SORTABLES = [];
+
+      document.querySelectorAll(".droplist").forEach(list => {
+        SORTABLES.push(new Sortable(list, {
+          group: "themes",              // même groupe partout = déplacement entre colonnes
+          animation: 150,
+          ghostClass: "sortable-ghost",
+          dragClass: "sortable-drag",
+          onAdd: onDrop,                // arrivée dans une nouvelle colonne
+          onUpdate: onReorder,          // réordonnancement interne
+        }));
+      });
+    }
+
+    // Élément déposé dans une autre colonne.
+    async function onDrop(evt) {
+      const el = evt.item;
+      const itemId = el.dataset.id;
+      // Une carte fusionnée porte plusieurs liaisons : on les déplace toutes.
+      const links = (el.dataset.links || el.dataset.type).split(",");
+      const fromTheme = Number(evt.from.dataset.theme);   // 0 = non classés
+      const toTheme = Number(evt.to.dataset.theme);
+      const position = evt.newIndex;
+
+      try {
+        for (const itemType of links) {
+          if (toTheme === 0) {
+            await api("DELETE", "/api/themes/items", { themeId: fromTheme, itemType, itemId });
+          } else if (fromTheme === 0) {
+            await api("POST", "/api/themes/items", { themeId: toTheme, itemType, itemId, position });
+          } else {
+            await api("POST", "/api/themes/items/move", {
+              fromThemeId: fromTheme, toThemeId: toTheme, itemType, itemId, position,
+            });
+          }
+        }
+        await syncOrder(evt.to);
+        await refreshCounts();
+      } catch (err) {
+        alert("Erreur : " + err.message);
+        await loadAll();
+      }
+    }
+
+    // Réordonnancement à l'intérieur d'une même colonne.
+    async function onReorder(evt) {
+      if (Number(evt.to.dataset.theme) === 0) return;   // pas d'ordre sur les non classés
+      try {
+        await syncOrder(evt.to);
+      } catch (err) {
+        alert("Erreur : " + err.message);
+        await loadAll();
+      }
+    }
+
+    // Renvoie l'ordre complet de la colonne au serveur.
+    async function syncOrder(listEl) {
+      const themeId = Number(listEl.dataset.theme);
+      if (!themeId) return;
+      const items = [];
+      listEl.querySelectorAll(".item").forEach(el => {
+        const links = (el.dataset.links || el.dataset.type).split(",");
+        for (const itemType of links) items.push({ itemType, itemId: el.dataset.id });
+      });
+      await api("POST", `/api/themes/${themeId}/reorder`, { items });
+    }
+
+    // Met à jour les compteurs et retire le message "vide" sans tout recharger.
+    async function refreshCounts() {
+      document.querySelectorAll(".col").forEach(col => {
+        const list = col.querySelector(".droplist");
+        const n = list.querySelectorAll(".item").length;
+        col.querySelector(".colcount").textContent = n;
+
+        const empty = list.querySelector(".colempty");
+        if (n && empty) empty.remove();
+        if (!n && !empty) {
+          const isUnclass = Number(list.dataset.theme) === 0;
+          list.insertAdjacentHTML("beforeend",
+            `<div class="colempty">${isUnclass ? "Tout est rangé 🎉" : "Glisse des éléments ici"}</div>`);
+        }
+      });
+    }
+
+    async function api(method, url, body) {
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      return res.json();
+    }
+
+    loadAll();
+  </script>
+  <script src="/nav.js"></script>
+</body>
+</html>
