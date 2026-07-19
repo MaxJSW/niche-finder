@@ -15,6 +15,7 @@ import { crawlChannel } from './channel.js';
 import { saveChannelCrawl } from './save-target.js';
 import { detectBreakouts } from './breakout.js';
 import { videoHistory, channelHistory, targetChannelHistory, sparklines } from './history.js';
+import { listScans, keywordSummary, globalStats } from './scans-log.js';
 import { pool } from './db.js';
 
 dns.setDefaultResultOrder('ipv4first');
@@ -688,6 +689,40 @@ app.get('/api/history/target/:channelId', async (req, res) => {
     res.json(await targetChannelHistory(req.params.channelId, days));
   } catch (err) {
     console.error('💥 /api/history/target :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+//  JOURNAL D'ACTIVITÉ (scans + mots-clés) — lecture seule
+// ============================================================
+
+app.get('/api/log/scans', async (req, res) => {
+  try {
+    res.json(await listScans({
+      limit: Number(req.query.limit) || 200,
+      keyword: req.query.keyword || null,
+    }));
+  } catch (err) {
+    console.error('💥 /api/log/scans :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/log/keywords', async (req, res) => {
+  try {
+    res.json(await keywordSummary());
+  } catch (err) {
+    console.error('💥 /api/log/keywords :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/log/stats', async (req, res) => {
+  try {
+    res.json(await globalStats());
+  } catch (err) {
+    console.error('💥 /api/log/stats :', err.message);
     res.status(500).json({ error: err.message });
   }
 });

@@ -461,10 +461,17 @@
     }
 
     async function load() {
+      // Mot-clé passé en URL (?q=...) depuis le Journal : il a priorité sur le dernier scan.
+      const urlKw = new URLSearchParams(location.search).get("q");
+
       const res = await fetch("/api/latest");
-      if (!res.ok) { document.getElementById("rows").innerHTML = '<tr><td colspan="7" class="empty">Aucun scan encore. Tape un mot-clé et lance une recherche.</td></tr>'; loadQuota(); loadKeywordBadges(); return; }
+      if (!res.ok) {
+        document.getElementById("rows").innerHTML = '<tr><td colspan="8" class="empty">Aucun scan encore. Tape un mot-clé et lance une recherche.</td></tr>';
+        if (urlKw) document.getElementById("kw").value = urlKw;
+        loadQuota(); loadKeywordBadges(); return;
+      }
       DATA = await res.json();
-      document.getElementById("kw").value = DATA.keyword;
+      document.getElementById("kw").value = urlKw || DATA.keyword;
       await loadPinnedState();
       await loadFollowedState();
       render();

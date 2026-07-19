@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Niche Finder — Journal</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="side"></aside>
+
+    <main class="main">
+      <h1 class="page-title">Journal d'activité</h1>
+
+      <div class="stats" id="stats"></div>
+
+      <div class="tabs">
+        <button class="tab active" data-pane="p-scans">🕑 Chronologique</button>
+        <button class="tab" data-pane="p-kw">🔑 Par mot-clé</button>
+      </div>
+
+      <!-- Vue chronologique -->
+      <div class="pane active" id="p-scans">
+        <div class="searchbar">
+          <input id="f-scans" placeholder="Filtrer par mot-clé…">
+          <select class="selbox" id="f-limit">
+            <option value="50">50 derniers</option>
+            <option value="200" selected>200 derniers</option>
+            <option value="1000">Tout</option>
+          </select>
+        </div>
+        <div class="tablecard">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:150px">Date</th>
+                <th>Mot-clé</th>
+                <th class="num" style="width:90px">Vidéos</th>
+                <th class="num" style="width:80px">Quota</th>
+                <th style="width:60px"></th>
+              </tr>
+            </thead>
+            <tbody id="rows-scans"><tr><td colspan="5" class="empty">Chargement…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Vue agrégée -->
+      <div class="pane" id="p-kw">
+        <div class="searchbar">
+          <input id="f-kw" placeholder="Filtrer par mot-clé…">
+          <select class="selbox" id="f-sort">
+            <option value="last">Plus récent</option>
+            <option value="scans">Plus scanné</option>
+            <option value="quota">Quota consommé</option>
+            <option value="alpha">Alphabétique</option>
+          </select>
+        </div>
+        <div class="tablecard">
+          <table>
+            <thead>
+              <tr>
+                <th>Mot-clé</th>
+                <th class="num" style="width:70px">Scans</th>
+                <th class="num" style="width:90px">Vidéos</th>
+                <th class="num" style="width:90px">Quota</th>
+                <th style="width:130px">Dernier scan</th>
+                <th style="width:60px"></th>
+              </tr>
+            </thead>
+            <tbody id="rows-kw"><tr><td colspan="6" class="empty">Chargement…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+   <script>
+    let SCANS = [], KW = [];
+
+    function esc(t) {
+      const d = document.createElement("div"); d.textContent = t || ""; return d.innerHTML;
+    }
+    function fmt(n) {
+      if (n === null || n === undefined) return "—";
+      if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + "M";
+      if (n >= 1e3) return (n / 1e3).toFixed(1).replace(".", ",") + "k";
+      return String(n);
+    }
+    function dt(iso) {
+      if (!iso) return "—";
+      const d = new Date(iso);
+      return d.toLocaleDateString("fr-FR") + " " +
+             d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    }
+    function dayOnly(iso) {
+      if (!iso) return "—";
+      return new Date(iso).toLocaleDateString("fr-FR");
+    }
+    // Coupe les titres longs (les recherches de queries.html arrivent ici).
+    function short(t, n = 70) {
+      return t.length > n ? t.slice(0, n) + "…" : t;
+    }
+
+    // --- Totaux ---
+    async function loadStats() {
+      const s = await fetch("/api/log/stats").then(r => r.json());
+      document.getElementById("stats").innerHTML = `
+        <div class="stat"><div class="lbl">Scans</div><div class="val">${s.scans}</div></div>
+        <div class="stat"><div class="lbl">Mots-clés</div><div class="val">${s.keywords}</div></div>
+        <div class="stat"><div class="lbl">Vidéos remontées</div><div class="val">${fmt(s.videos)}</div></div>
+        <div class="stat"><div class="lbl">Quota cumulé</div><div class="val">${fmt(s.quota)}</div></div>`;
+    }
+
+    // --- Vue chronologique ---
+    async function loadScans() {
+      const limit = document.getElementById("f-limit").value;
+      SCANS = await fetch(`/api/log/scans?limit=${limit}`).then(r => r.json());
+      renderScans();
+    }
+
+    function renderScans() {
+      const q = document.getElementById("f-scans").value.trim().toLowerCase();
+      const list = q ? SCANS.filter(s => s.keyword.toLowerCase().includes(q)) : SCANS;
+      const body = document.getElementById("rows-scans");
+
+      if (!list.length) {
+        body.innerHTML = '<tr><td colspan="5" class="empty">Aucun scan.</td></tr>';
+        return;
+      }
+
+      body.innerHTML = list.map(s => `
+        <tr>
+          <td>${dt(s.fetchedAt)}</td>
+          <td class="title" title="${esc(s.keyword)}">${esc(short(s.keyword))}</td>
+          <td class="num">${s.videoCount}</td>
+          <td class="num">${s.quotaUsed}</td>
+          <td><button class="act" onclick="rescan('${esc(s.keyword).replace(/'/g, "\\'")}')"
+                      title="Relancer ce scan">🔍</button></td>
+        </tr>`).join("");
+    }
+
+    // --- Vue par mot-clé ---
+    async function loadKeywords() {
+      KW = await fetch("/api/log/keywords").then(r => r.json());
+      renderKeywords();
+    }
+
+    function renderKeywords() {
+      const q = document.getElementById("f-kw").value.trim().toLowerCase();
+      const sort = document.getElementById("f-sort").value;
+      let list = q ? KW.filter(k => k.keyword.toLowerCase().includes(q)) : [...KW];
+
+      if (sort === "scans")      list.sort((a, b) => b.realScans - a.realScans);
+      else if (sort === "quota") list.sort((a, b) => b.quotaTotal - a.quotaTotal);
+      else if (sort === "alpha") list.sort((a, b) => a.keyword.localeCompare(b.keyword, "fr"));
+      else list.sort((a, b) => new Date(b.lastScan || 0) - new Date(a.lastScan || 0));
+
+      const body = document.getElementById("rows-kw");
+      if (!list.length) {
+        body.innerHTML = '<tr><td colspan="6" class="empty">Aucun mot-clé.</td></tr>';
+        return;
+      }
+
+      body.innerHTML = list.map(k => {
+        // Alerte visuelle : scanné il y a moins de 3 jours -> éviter de repayer.
+        const days = k.lastScan
+          ? Math.floor((Date.now() - new Date(k.lastScan)) / 86400000)
+          : null;
+        const fresh = days !== null && days < 3;
+        return `
+        <tr>
+          <td class="title" title="${esc(k.keyword)}">${esc(short(k.keyword))}</td>
+          <td class="num">${k.realScans || "—"}</td>
+          <td class="num">${fmt(k.videosTotal)}</td>
+          <td class="num">${fmt(k.quotaTotal)}</td>
+          <td style="color:${fresh ? 'var(--amber)' : 'var(--muted)'}">
+            ${dayOnly(k.lastScan)}${fresh ? ` · ${days}j` : ""}
+          </td>
+          <td><button class="act" onclick="rescan('${esc(k.keyword).replace(/'/g, "\\'")}')"
+                      title="Relancer ce scan">🔍</button></td>
+        </tr>`;
+      }).join("");
+    }
+
+    // Renvoie vers la page de recherche avec le mot-clé pré-rempli.
+    function rescan(keyword) {
+      location.href = "/?q=" + encodeURIComponent(keyword);
+    }
+
+    // --- Onglets ---
+    document.querySelectorAll(".tab").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".pane").forEach(p => p.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById(btn.dataset.pane).classList.add("active");
+      });
+    });
+
+    document.getElementById("f-scans").addEventListener("input", renderScans);
+    document.getElementById("f-limit").addEventListener("change", loadScans);
+    document.getElementById("f-kw").addEventListener("input", renderKeywords);
+    document.getElementById("f-sort").addEventListener("change", renderKeywords);
+
+    loadStats();
+    loadScans();
+    loadKeywords();
+  </script>
+  <script src="/nav.js"></script>
+</body>
+</html>
