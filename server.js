@@ -9,6 +9,8 @@ import path from 'node:path';
 import { scanKeyword } from './scan.js';   // la fonction déjà exportée de scan.js
 import { searchChannels } from './search-channels.js';
 import { buildQueries, findCompetitors } from './competitors.js';
+import { linkCompetitor, unlinkCompetitor, listCompetitors, listAllLinks, listCrawlCandidates } from './competitors-links.js';
+import { competitorsOverview } from './competitors-overview.js';
 import { addQuery, listQueries, updateQuery, deleteQuery, getResults, runQuery } from './queries.js';
 import { pinVideo, followChannel, recordScan } from './save.js';
 import { crawlChannel } from './channel.js';
@@ -443,7 +445,7 @@ app.post('/api/target/crawl', async (req, res) => {
   try {
     console.log(`🎯 Crawl chaîne : ${channelId}`);
     const crawl = await crawlChannel(channelId, { maxPages });
-    const saved = await saveChannelCrawl(crawl, { isSeed: true });
+    const saved = await saveChannelCrawl(crawl, { isSeed: false });
 
     const quota = await addQuota(crawl.quotaUsed);
     console.log(`✅ ${saved.videosSaved} vidéos · quota jour : ${quota.used}/${QUOTA_LIMIT}`);
@@ -550,6 +552,25 @@ app.delete('/api/target/channels/:channelId', async (req, res) => {
   }
 });
 
+// Marque / démarque une chaîne comme cible stratégique. Décision 100% manuelle.
+app.post('/api/target/seed', async (req, res) => {
+  const channelId = (req.body?.channelId || '').trim();
+  const seed = req.body?.seed === true ? 1 : 0;
+  if (!channelId) return res.status(400).json({ error: 'channelId requis.' });
+  try {
+    const [r] = await pool.query(
+      'UPDATE target_channels SET is_seed = ? WHERE channel_id = ?',
+      [seed, channelId]
+    );
+    if (!r.affectedRows) return res.status(404).json({ error: 'Chaîne inconnue.' });
+    console.log(`${seed ? '🎯' : '⭕'} Cible ${seed ? 'activée' : 'retirée'} : ${channelId}`);
+    res.json({ channelId, is_seed: seed });
+  } catch (err) {
+    console.error('💥 /api/target/seed :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Propose les requêtes de recherche à partir des vidéos d'une chaîne cible. Gratuit.
 app.post('/api/competitors/queries', async (req, res) => {
   const channelId = (req.body?.channelId || '').trim();
@@ -596,6 +617,125 @@ app.post('/api/competitors/find', async (req, res) => {
     res.json({ ...out, quota });
   } catch (err) {
     console.error('💥 /api/competitors/find :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Lie manuellement (ou après validation d'une suggestion) un concurrent à une chaîne source.
+app.post('/api/competitors/link', async (req, res) => {
+  try {
+    const out = await linkCompetitor({
+      sourceChannelId: (req.body?.sourceChannelId || '').trim(),
+      competitorChannelId: (req.body?.competitorChannelId || '').trim(),
+      competitorTitle: req.body?.competitorTitle || null,
+      via: req.body?.via || 'manual',
+      score: req.body?.score != null ? Number(req.body.score) : null,
+    });
+    console.log(`🔗 Concurrent lié : ${out.competitorChannelId} -> ${out.sourceTitle}${out.created ? '' : ' (mise à jour)'}`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 /api/competitors/link :', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Délie un concurrent (ne supprime rien d'autre).
+app.delete('/api/competitors/link', async (req, res) => {
+  try {
+    const out = await unlinkCompetitor({
+      sourceChannelId: (req.body?.sourceChannelId || '').trim(),
+      competitorChannelId: (req.body?.competitorChannelId || '').trim(),
+    });
+    console.log(`✂️ Concurrent délié : ${out.unlinked}`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 DELETE /api/competitors/link :', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Vue d'ensemble par groupes concurrentiels (page concurrence.html). Gratuit.
+app.get('/api/competitors/overview', async (req, res) => {
+  try {
+    res.json(await competitorsOverview());
+  } catch (err) {
+    console.error('💥 /api/competitors/overview :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Toutes les paires source -> concurrent (état initial des boutons 🔗).
+app.get('/api/competitors/links', async (req, res) => {
+  try {
+    res.json(await listAllLinks());
+  } catch (err) {
+    console.error('💥 /api/competitors/links (all) :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Liste les concurrents liés d'une chaîne source (enrichis si crawlés).
+app.get('/api/competitors/links/:channelId', async (req, res) => {
+  try {
+    res.json(await listCompetitors(req.params.channelId));
+  } catch (err) {
+    console.error('💥 /api/competitors/links :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Crawl en lot des concurrents liés (jamais crawlés ou trop anciens).
+// { sourceChannelId? } limite aux concurrents d'une seule source ; absent = tous.
+// Séquentiel, avec garde-fou quota AVANT chaque chaîne : la boucle s'arrête
+// proprement si le quota ne suffit plus, et renvoie un rapport détaillé.
+app.post('/api/competitors/crawl', async (req, res) => {
+  const sourceChannelId = (req.body?.sourceChannelId || '').trim() || null;
+  const maxAgeDays = Number(req.body?.maxAgeDays) || 7;
+  const maxPages = Math.min(Math.max(Number(req.body?.maxPages) || 5, 1), 20);
+  const perChannelEstimate = 1 + maxPages * 2;
+
+  try {
+    const candidates = await listCrawlCandidates({ sourceChannelId, maxAgeDays });
+    if (!candidates.length) {
+      return res.json({ candidates: 0, crawled: [], skipped: [], failed: [], quota: await readQuota() });
+    }
+
+    console.log(`🕸️ Crawl concurrents : ${candidates.length} candidat(s)${sourceChannelId ? ` (source ${sourceChannelId})` : ''}`);
+
+    const crawled = [];
+    const skipped = [];
+    const failed = [];
+
+    for (const cand of candidates) {
+      const q = await readQuota();
+      if (q.used + perChannelEstimate > QUOTA_LIMIT) {
+        skipped.push({ channelId: cand.channel_id, channelTitle: cand.channel_title, reason: 'quota' });
+        continue;
+      }
+
+      try {
+        const crawl = await crawlChannel(cand.channel_id, { maxPages });
+        const saved = await saveChannelCrawl(crawl, { isSeed: false });
+        await addQuota(crawl.quotaUsed);
+        console.log(`  ✅ ${crawl.channel.channelTitle} : ${saved.videosSaved} vidéos · ${crawl.quotaUsed} u`);
+        crawled.push({
+          channelId: cand.channel_id,
+          channelTitle: crawl.channel.channelTitle,
+          videosSaved: saved.videosSaved,
+          quotaUsed: crawl.quotaUsed,
+          truncated: crawl.truncated,
+        });
+      } catch (err) {
+        console.error(`  💥 ${cand.channel_id} : ${err.message}`);
+        failed.push({ channelId: cand.channel_id, channelTitle: cand.channel_title, error: err.message });
+      }
+    }
+
+    const quota = await readQuota();
+    console.log(`🕸️ Terminé : ${crawled.length} crawlée(s), ${skipped.length} sautée(s), ${failed.length} échec(s) · quota ${quota.used}/${QUOTA_LIMIT}`);
+    res.json({ candidates: candidates.length, crawled, skipped, failed, quota: { ...quota, limit: QUOTA_LIMIT } });
+  } catch (err) {
+    console.error('💥 /api/competitors/crawl :', err.message);
     res.status(500).json({ error: err.message });
   }
 });

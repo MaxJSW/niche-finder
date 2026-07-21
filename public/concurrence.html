@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Niche Finder — Concurrence</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .group { background: var(--card); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 22px; overflow: hidden; }
+    .ghead { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .ghead h2 { margin: 0; font-size: 1.02rem; }
+    .ghead .gmeta { color: var(--muted); font-size: 0.76rem; margin-left: auto; }
+    .gsub { padding: 10px 20px; color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--border); }
+    .gsub:hover { color: var(--text); }
+    .gsub .chev { transition: transform 0.15s; font-size: 0.8rem; }
+    .gsub.open .chev { transform: rotate(90deg); }
+    .perfwrap { display: none; }
+    .perfwrap.show { display: block; }
+    .group table { font-size: 0.84rem; }
+    .rolebadge { font-size: 0.64rem; border-radius: 999px; padding: 1px 7px; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
+    .rolebadge.cible { color: var(--accent); border: 1px solid var(--accent); }
+    .rolebadge.concurrent { color: var(--amber); border: 1px solid var(--amber); }
+    .ratio { font-weight: 600; }
+    .r-hot { color: var(--green); }
+    .r-mid { color: var(--amber); }
+    .r-low { color: var(--muted); }
+    .perf-vid { color: var(--muted); font-size: 0.74rem; margin-top: 2px; }
+    .perf-vid a { color: var(--muted); text-decoration: none; }
+    .perf-vid a:hover { color: var(--accent); text-decoration: underline; }
+    .nocomp { padding: 12px 20px; color: var(--muted); font-size: 0.8rem; }
+    .nocomp a { color: var(--accent); }
+    .thumb-s { width: 72px; border-radius: 6px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side"></aside>
+
+    <main class="main">
+      <h1 class="page-title">Concurrence</h1>
+
+      <div class="stats">
+        <div class="stat"><div class="lbl">Groupes (cibles)</div><div class="val" id="s-groups">—</div></div>
+        <div class="stat"><div class="lbl">Chaînes suivies</div><div class="val" id="s-chans">—</div></div>
+        <div class="stat"><div class="lbl">Vidéos analysées</div><div class="val" id="s-vids">—</div></div>
+      </div>
+
+      <div id="groups"><div class="empty">Chargement…</div></div>
+    </main>
+  </div>
+
+  <script>
+    function fmt(n) {
+      if (n === null || n === undefined) return "—";
+      n = Number(n);
+      if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + "M";
+      if (n >= 1e3) return Math.round(n / 1e3) + "k";
+      return String(n);
+    }
+    function esc(t) {
+      const d = document.createElement("div"); d.textContent = t || ""; return d.innerHTML;
+    }
+    function dateTxt(iso) {
+      if (!iso) return "—";
+      return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "2-digit" });
+    }
+    function ratioCls(r) {
+      return r >= 3 ? "r-hot" : r >= 1.5 ? "r-mid" : "r-low";
+    }
+
+    // Replie/déplie la section top performers d'un groupe.
+    function togglePerf(head) {
+      head.classList.toggle("open");
+      head.nextElementSibling.classList.toggle("show");
+    }
+
+    function channelRows(channels) {
+      return channels.map(c => {
+        const url = c.handle ? "https://www.youtube.com/" + c.handle : "https://www.youtube.com/channel/" + c.channelId;
+        const top = c.topVideo;
+        return `
+          <tr>
+            <td class="title">
+              <a href="${url}" target="_blank" rel="noopener">${esc(c.channelTitle)}</a>
+              <span class="rolebadge ${c.role}">${c.role === "cible" ? "🎯 cible" : "concurrent"}</span>
+            </td>
+            <td class="num">${fmt(c.subscribers)}</td>
+            <td class="num">${c.videoCount}</td>
+            <td class="num">${fmt(c.medianViews)}</td>
+            <td class="title">
+              ${top ? `<a href="https://www.youtube.com/watch?v=${top.videoId}" target="_blank" rel="noopener">${esc(top.title)}</a>
+                       <div class="perf-vid">${fmt(top.views)} vues · <span class="ratio ${ratioCls(top.ratio)}">×${top.ratio}</span></div>`
+                    : '<span class="perf-vid">pas de données — à crawler</span>'}
+            </td>
+            <td>${dateTxt(c.lastCrawledAt)}</td>
+          </tr>`;
+      }).join("");
+    }
+
+    function performerRows(perfs) {
+      return perfs.map(p => `
+        <tr>
+          <td><img class="thumb-s" src="${p.thumbnail}" alt="" loading="lazy"></td>
+          <td class="title">
+            <a href="https://www.youtube.com/watch?v=${p.videoId}" target="_blank" rel="noopener">${esc(p.title)}</a>
+            <div class="perf-vid">${esc(p.channelTitle)} · ${dateTxt(p.publishedAt)}</div>
+          </td>
+          <td class="num">${fmt(p.views)}</td>
+          <td class="num ratio ${ratioCls(p.ratio)}">×${p.ratio}</td>
+        </tr>`).join("");
+    }
+
+    async function load() {
+      const box = document.getElementById("groups");
+      let data;
+      try {
+        const res = await fetch("/api/competitors/overview");
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Erreur");
+      } catch (err) {
+        box.innerHTML = `<div class="empty">Erreur : ${esc(err.message)}</div>`;
+        return;
+      }
+
+      const groups = data.groups || [];
+      document.getElementById("s-groups").textContent = groups.length;
+      const allChans = new Set();
+      let vidCount = 0;
+      for (const g of groups) {
+        for (const c of g.channels) { allChans.add(c.channelId); vidCount += c.videoCount; }
+      }
+      document.getElementById("s-chans").textContent = allChans.size;
+      document.getElementById("s-vids").textContent = vidCount;
+
+      if (!groups.length) {
+        box.innerHTML = '<div class="empty">Aucune chaîne cible. Marque une chaîne avec 🎯 sur la page Channel Crawl.</div>';
+        return;
+      }
+
+      box.innerHTML = groups.map(g => `
+        <div class="group">
+          <div class="ghead">
+            <h2>${esc(g.seed.channelTitle)}</h2>
+            <span class="gmeta">${g.channels.length - 1} concurrent${g.channels.length - 1 > 1 ? "s" : ""} lié${g.channels.length - 1 > 1 ? "s" : ""}</span>
+          </div>
+          <div class="tablecard">
+            <table>
+              <thead>
+                <tr>
+                  <th>Chaîne</th>
+                  <th class="num" style="width:80px">Abonnés</th>
+                  <th class="num" style="width:70px">Vidéos</th>
+                  <th class="num" style="width:90px">Méd. vues</th>
+                  <th>Top vidéo</th>
+                  <th style="width:100px">Crawl</th>
+                </tr>
+              </thead>
+              <tbody>${channelRows(g.channels)}</tbody>
+            </table>
+          </div>
+          ${g.channels.length < 2
+            ? '<div class="nocomp">Aucun concurrent lié — utilise 🔗 sur <a href="/targets.html">Channel Crawl</a> ou <a href="/queries.html">Analyse titres</a>.</div>'
+            : ""}
+          ${g.topPerformers.length ? `
+            <div class="gsub" onclick="togglePerf(this)">
+              <span class="chev">▶</span>
+              Top performers du groupe (${g.topPerformers.length}) — ratio vs médiane de leur chaîne
+            </div>
+            <div class="perfwrap">
+              <div class="tablecard">
+                <table>
+                  <thead>
+                    <tr><th style="width:88px"></th><th>Vidéo</th><th class="num" style="width:80px">Vues</th><th class="num" style="width:64px">Ratio</th></tr>
+                  </thead>
+                  <tbody>${performerRows(g.topPerformers)}</tbody>
+                </table>
+              </div>
+            </div>` : ""}
+        </div>`).join("");
+    }
+
+    load();
+  </script>
+  <script src="/nav.js"></script>
+</body>
+</html>

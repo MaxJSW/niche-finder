@@ -19,6 +19,23 @@
     .backlink { color: var(--muted); font-size: 0.8rem; cursor: pointer; text-decoration: underline; }
     .act.added { border-color: var(--green); background: rgba(74, 222, 128, 0.12); }
     .act.added:hover { border-color: var(--green); }
+    .compbadge { font-size: 0.64rem; color: var(--amber); border: 1px solid var(--amber); border-radius: 999px; padding: 1px 7px; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
+    .seedbadge { font-size: 0.64rem; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 7px; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
+
+    /* Modale de liaison concurrent */
+    .modal-back { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 50; }
+    .modal-back.show { display: flex; align-items: center; justify-content: center; }
+    .modal { background: var(--card); border: 1px solid var(--border); border-radius: 14px; width: min(520px, 92vw); max-height: 80vh; display: flex; flex-direction: column; }
+    .modal-head { padding: 16px 20px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 0.95rem; }
+    .modal-head .sub { color: var(--muted); font-weight: 400; font-size: 0.78rem; margin-top: 4px; }
+    .modal-body { padding: 10px 12px; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+    .modal-body::-webkit-scrollbar { display: none; }
+    .modal-foot { padding: 12px 20px; border-top: 1px solid var(--border); text-align: right; }
+    .seedrow { display: flex; align-items: center; gap: 10px; padding: 10px 10px; border-radius: 9px; }
+    .seedrow:hover { background: var(--card2); }
+    .seedrow .stitle { flex: 1; font-size: 0.88rem; }
+    .seedrow .smeta { color: var(--muted); font-size: 0.72rem; margin-top: 2px; }
+    .seedrow button.linked { border-color: var(--green); color: var(--green); }
   </style>
 </head>
 <body>
@@ -37,6 +54,7 @@
           <option value="20">1000 vidéos max</option>
         </select>
         <button id="crawlBtn">Crawler</button>
+        <button id="compCrawlBtn" title="Crawle les concurrents liés jamais crawlés (ou crawlés il y a plus de 7 jours) — ~11 u par chaîne">🕸️ Concurrents</button>
       </div>
       <div class="hint">Le channelId est immuable (contrairement au @handle). Visible dans l'URL /channel/UC… ou via SocialBlade.</div>
 
@@ -91,6 +109,18 @@
     </main>
   </div>
 
+  <!-- Modale : lier une chaîne comme concurrent d'une chaîne cible -->
+  <div class="modal-back" id="linkModal">
+    <div class="modal">
+      <div class="modal-head">
+        Lier comme concurrent
+        <div class="sub" id="linkModalSub">—</div>
+      </div>
+      <div class="modal-body" id="linkModalBody"><div class="empty">Chargement…</div></div>
+      <div class="modal-foot"><button class="act" onclick="closeLinkModal()">Fermer</button></div>
+    </div>
+  </div>
+
   <script>
     function fmt(n) {
       if (n === null || n === undefined) return "—";
@@ -114,6 +144,8 @@
     let QUERIED = new Set();   // titres déjà envoyés vers la liste d'analyse
     let FOLLOWED = new Set();  // chaînes présentes dans la watchlist perso
     let BADGES = {};           // channelId -> [{id, name, color}]
+    let LINKED = new Map();    // competitorId -> Map(sourceId -> sourceTitle)
+    let LINK_CAND = null;      // { channelId, channelTitle } en cours de liaison
 
     async function loadBadges() {
       try {
@@ -138,6 +170,132 @@
         const chans = await res.json();
         FOLLOWED = new Set(chans.map(c => c.channel_id));
       } catch { FOLLOWED = new Set(); }
+    }
+
+    // Paires source -> concurrent existantes, pour l'état des boutons 🔗.
+    async function loadLinkedState() {
+      try {
+        const rows = await fetch("/api/competitors/links").then(r => r.json());
+        LINKED = new Map();
+        for (const r of rows) {
+          if (!LINKED.has(r.competitor_channel_id)) LINKED.set(r.competitor_channel_id, new Map());
+          LINKED.get(r.competitor_channel_id).set(r.source_channel_id, r.source_title);
+        }
+      } catch { LINKED = new Map(); }
+    }
+
+    function linkTitle(channelId) {
+      const m = LINKED.get(channelId);
+      if (!m || !m.size) return "Lier comme concurrent d'une chaîne cible";
+      return "Concurrent de : " + [...m.values()].join(", ") + " — cliquer pour gérer";
+    }
+
+    // Texte court "concurrent de X" (ou "X +1" si lié à plusieurs seeds).
+    function linkedSourcesTxt(channelId) {
+      const m = LINKED.get(channelId);
+      if (!m || !m.size) return "?";
+      const names = [...m.values()];
+      return names.length === 1 ? names[0] : names[0] + " +" + (names.length - 1);
+    }
+
+    // Marque / démarque une chaîne cible. Un re-rendu complet suffit (liste courte).
+    async function toggleSeed(channelId, seed, btn) {
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/target/seed", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channelId, seed }),
+        });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || "Erreur");
+        await loadChannels();
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+      }
+    }
+
+    function openLinkModal(channelId, channelTitle) {
+      LINK_CAND = { channelId, channelTitle };
+      document.getElementById("linkModalSub").textContent = channelTitle;
+      renderLinkModal();
+      document.getElementById("linkModal").classList.add("show");
+    }
+
+    function closeLinkModal() {
+      document.getElementById("linkModal").classList.remove("show");
+      LINK_CAND = null;
+      loadChannels();   // rafraîchit l'état des boutons 🔗 du tableau
+    }
+
+    function renderLinkModal() {
+      const body = document.getElementById("linkModalBody");
+      const seeds = CHANNELS.filter(c => Number(c.is_seed) === 1);
+      if (!seeds.length) {
+        body.innerHTML = '<div class="empty">Aucune chaîne seed dans tes cibles.</div>';
+        return;
+      }
+
+      const linkedTo = LINKED.get(LINK_CAND.channelId) || new Map();
+
+      body.innerHTML = seeds.map(s => {
+        const isLinked = linkedTo.has(s.channel_id);
+        const isSelf = s.channel_id === LINK_CAND.channelId;
+        return `
+          <div class="seedrow">
+            <div class="stitle">
+              ${esc(s.channel_title)}
+              <div class="smeta">${fmt(s.subscribers)} abonnés · ${s.crawled_videos} vidéos en base</div>
+            </div>
+            ${isSelf
+              ? '<span class="smeta">c\'est cette chaîne</span>'
+              : `<button class="act ${isLinked ? "linked" : ""}"
+                        onclick="toggleLink('${s.channel_id}', this)"
+                        title="${isLinked ? "Délier" : "Lier"}">${isLinked ? "✅ Lié" : "🔗 Lier"}</button>`}
+          </div>`;
+      }).join("");
+    }
+
+    // Lie ou délie le candidat courant à/de la source cliquée.
+    async function toggleLink(sourceChannelId, btn) {
+      if (!LINK_CAND) return;
+      btn.disabled = true;
+      const linkedTo = LINKED.get(LINK_CAND.channelId) || new Map();
+      const isLinked = linkedTo.has(sourceChannelId);
+      try {
+        if (isLinked) {
+          const res = await fetch("/api/competitors/link", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sourceChannelId, competitorChannelId: LINK_CAND.channelId }),
+          });
+          const j = await res.json();
+          if (!res.ok) throw new Error(j.error || "Erreur");
+          linkedTo.delete(sourceChannelId);
+          if (!linkedTo.size) LINKED.delete(LINK_CAND.channelId);
+        } else {
+          const res = await fetch("/api/competitors/link", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sourceChannelId,
+              competitorChannelId: LINK_CAND.channelId,
+              competitorTitle: LINK_CAND.channelTitle,
+              via: "manual",
+            }),
+          });
+          const j = await res.json();
+          if (!res.ok) throw new Error(j.error || "Erreur");
+          if (!LINKED.has(LINK_CAND.channelId)) LINKED.set(LINK_CAND.channelId, new Map());
+          const seed = CHANNELS.find(c => c.channel_id === sourceChannelId);
+          LINKED.get(LINK_CAND.channelId).set(sourceChannelId, seed ? seed.channel_title : sourceChannelId);
+        }
+        renderLinkModal();
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+      }
     }
 
     // Suivre / ne plus suivre — gratuit, les données viennent de target_channels.
@@ -200,6 +358,9 @@
       const res = await fetch("/api/target/channels");
       CHANNELS = await res.json();
 
+      // Cibles (seeds) en premier, puis concurrents ; ordre de crawl à l'intérieur.
+      CHANNELS.sort((a, b) => Number(b.is_seed) - Number(a.is_seed));
+
       document.getElementById("c-chan").textContent = CHANNELS.length ? `(${CHANNELS.length})` : "";
       document.getElementById("s-chan").textContent = CHANNELS.length;
       document.getElementById("s-vid").textContent = CHANNELS.reduce((a, c) => a + (c.crawled_videos || 0), 0);
@@ -215,14 +376,19 @@
         <tr class="chanrow" id="ch-${c.channel_id}" onclick="showVideos('${c.channel_id}')">
           <td class="title">
             <a href="https://www.youtube.com/channel/${c.channel_id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(c.channel_title)}</a>
-            ${badgesHtml(c.channel_id)}
-            ${c.handle ? `<div class="chan">${esc(c.handle)}</div>` : ""}
+            ${Number(c.is_seed) === 1 ? '<span class="seedbadge">🎯 cible</span>' : ""}
+            ${LINKED.has(c.channel_id)
+              ? `<span class="compbadge" title="${esc(linkTitle(c.channel_id))}">concurrent de ${esc(linkedSourcesTxt(c.channel_id))}</span>`
+              : ""}
+            <!-- badges pilotés par tes actions : toggle 🎯 ci-contre, modale 🔗 -->
           </td>
           <td class="num">${fmt(c.subscribers)}</td>
           <td class="num">${c.crawled_videos} / ${c.video_count ?? "?"}</td>
           <td class="num">${fmt(c.total_views)}</td>
           <td>${dateTxt(c.last_crawled_at)}</td>
           <td style="white-space:nowrap">
+            <button class="act${Number(c.is_seed) === 1 ? " added" : ""}" onclick="event.stopPropagation();toggleSeed('${c.channel_id}', ${Number(c.is_seed) === 1 ? "false" : "true"}, this)" title="${Number(c.is_seed) === 1 ? "Cible — cliquer pour retirer" : "Marquer comme chaîne cible"}">🎯</button>
+            <button class="act${LINKED.has(c.channel_id) ? " added" : ""}" onclick="event.stopPropagation();openLinkModal('${c.channel_id}', '${esc(c.channel_title).replace(/'/g, "\\'")}')" title="${esc(linkTitle(c.channel_id))}">🔗</button>
             <button class="act" onclick="event.stopPropagation();recrawl('${c.channel_id}', this)" title="Re-crawler (met à jour les stats)">🔄</button>
             <button class="act${FOLLOWED.has(c.channel_id) ? " added" : ""}" onclick="event.stopPropagation();toggleFollow('${c.channel_id}', this)" title="${FOLLOWED.has(c.channel_id) ? "Suivie — cliquer pour ne plus suivre" : "Suivre cette chaîne"}">${FOLLOWED.has(c.channel_id) ? "✅" : "👁️"}</button>
             <button class="act del" onclick="event.stopPropagation();delChannel('${c.channel_id}', this)" title="Supprimer + tout l'historique">🗑️</button>
@@ -355,6 +521,50 @@
       showVideos(channelId);
     }
 
+    // Crawl en lot des concurrents liés (channel_competitors) jamais/anciennement crawlés.
+    async function crawlCompetitors(btn) {
+      btn.disabled = true;
+      const label = btn.textContent;
+      btn.textContent = "⏳ Crawl en cours…";
+      try {
+        const res = await fetch("/api/competitors/crawl", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur"); return; }
+
+        if (!json.candidates) {
+          alert("Aucun concurrent à crawler : tous sont à jour (moins de 7 jours) ou aucun n'est lié.");
+          return;
+        }
+
+        const lines = [];
+        if (json.crawled.length) {
+          lines.push("✅ Crawlées :");
+          for (const c of json.crawled) lines.push(`   ${c.channelTitle} — ${c.videosSaved} vidéos (${c.quotaUsed} u)${c.truncated ? " · tronquée" : ""}`);
+        }
+        if (json.skipped.length) {
+          lines.push("⏭️ Sautées (quota) :");
+          for (const s of json.skipped) lines.push(`   ${s.channelTitle || s.channelId}`);
+        }
+        if (json.failed.length) {
+          lines.push("💥 Échecs :");
+          for (const f of json.failed) lines.push(`   ${f.channelTitle || f.channelId} — ${f.error}`);
+        }
+        alert(lines.join("\n"));
+
+        await loadChannels();
+        loadQuota();
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    }
+
     async function delChannel(channelId, btn) {
       if (!confirm("Supprimer cette chaîne cible et TOUT son historique de vidéos et de stats ? Irréversible.")) return;
       btn.disabled = true;
@@ -375,13 +585,14 @@
     }
 
     document.getElementById("crawlBtn").addEventListener("click", startCrawl);
+    document.getElementById("compCrawlBtn").addEventListener("click", crawlCompetitors);
     document.getElementById("cid").addEventListener("keydown", e => { if (e.key === "Enter") startCrawl(); });
     document.getElementById("closevids").addEventListener("click", () => {
       document.getElementById("vidsection").style.display = "none";
       document.querySelectorAll(".chanrow").forEach(r => r.classList.remove("sel"));
     });
 
-    Promise.all([loadQueriedTitles(), loadFollowedState(), loadBadges()]).then(loadChannels);
+    Promise.all([loadQueriedTitles(), loadFollowedState(), loadBadges(), loadLinkedState()]).then(loadChannels);
     loadQuota();
 
     // Pré-remplissage depuis pins.html : /targets.html?channelId=UC...
