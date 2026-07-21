@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Niche Finder — Suggestions de concurrents</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .topbar { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+    .topbar select { flex: 0 1 auto; }
+    .topbar select#seed { flex: 1; min-width: 220px; }
+    button.go { background: var(--accent); color: #fff; border: none; padding: 9px 20px; border-radius: 9px; font-weight: 500; cursor: pointer; font-size: 0.9rem; font-family: inherit; }
+    button.go:hover:not(:disabled) { filter: brightness(1.1); }
+    button.go:disabled { opacity: 0.5; cursor: default; }
+    .hint { color: var(--muted); font-size: 0.76rem; margin: 0 0 20px; }
+
+    .qhead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+    .qhead .cost { font-size: 0.84rem; color: var(--muted); }
+    .qhead .cost b { color: var(--amber); font-weight: 600; }
+    .qhead .spacer { flex: 1; }
+
+    .qrow { display: flex; align-items: flex-start; gap: 11px; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+    .qrow:last-child { border-bottom: none; }
+    .qrow:hover { background: var(--card2); }
+    .qrow input { accent-color: var(--accent); cursor: pointer; margin-top: 3px; flex-shrink: 0; }
+    .qrow .qtxt { flex: 1; min-width: 0; }
+    .qrow .qmain { font-size: 0.88rem; word-break: break-word; }
+    .qrow .qmeta { color: var(--muted); font-size: 0.72rem; margin-top: 3px; }
+    .qrow.dim .qmain { color: var(--muted); }
+    .qmode { font-size: 0.62rem; border: 1px solid var(--border); color: var(--muted); border-radius: 999px; padding: 1px 7px; margin-left: 7px; vertical-align: middle; white-space: nowrap; }
+
+    .rstats { display: flex; gap: 22px; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); margin-bottom: 16px; }
+    .rstats b { color: var(--text); font-weight: 600; }
+
+    .bocard.linked { opacity: 0.55; }
+    .bocard .bopick { margin-right: 10px; accent-color: var(--accent); cursor: pointer; }
+    .lbadge { font-size: 0.64rem; color: var(--green); border: 1px solid var(--green); border-radius: 999px; padding: 1px 7px; margin-left: 8px; vertical-align: middle; white-space: nowrap; }
+    .samples { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+    .samples a { display: block; color: var(--muted); font-size: 0.76rem; text-decoration: none; padding: 2px 0; }
+    .samples a:hover { color: var(--accent); }
+    .samples .sv { color: var(--muted); opacity: 0.7; }
+
+    .stickyfoot { position: sticky; bottom: 0; background: var(--bg); border-top: 1px solid var(--border); padding: 14px 0; display: flex; align-items: center; gap: 14px; }
+    .stickyfoot .spacer { flex: 1; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side"></aside>
+
+    <main class="main">
+      <h1 class="page-title">Suggestions de concurrents</h1>
+
+      <div class="topbar">
+        <select id="seed" class="selbox"><option value="">Chargement…</option></select>
+        <select id="mode" class="selbox" title="Comment fabriquer les requêtes">
+          <option value="segments" selected>Fragments des titres qui performent</option>
+          <option value="titles">Titres complets</option>
+        </select>
+        <select id="count" class="selbox" title="Nombre de requêtes présélectionnées">
+          <option value="3">3 présélectionnées</option>
+          <option value="5" selected>5 présélectionnées</option>
+          <option value="8">8 présélectionnées</option>
+        </select>
+        <button class="go" id="genBtn">Proposer les requêtes</button>
+      </div>
+      <div class="hint">
+        Générer les requêtes est <b>gratuit</b>. Seul le lancement des recherches consomme du quota (100 u par requête).
+        Le mode <i>vocabulaire</i> vise le créneau ; le mode <i>titres</i> vise le sujet précis.
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="lbl">Chaîne cible</div><div class="val" id="s-chan" style="font-size:1rem">—</div></div>
+        <div class="stat"><div class="lbl">Requêtes cochées</div><div class="val" id="s-sel">—</div></div>
+        <div class="stat"><div class="lbl">Coût estimé</div><div class="val" id="s-cost" style="font-size:1.1rem">—</div></div>
+        <div class="stat"><div class="lbl">Quota du jour</div><div class="val" id="s-quota" style="font-size:1.1rem">—</div></div>
+      </div>
+
+      <!-- Étape 2 : arbitrage des requêtes -->
+      <div class="section" id="qsection" style="display:none">
+        <div class="qhead">
+          <h2 style="margin:0">🧪 Requêtes proposées <span class="count" id="c-q"></span></h2>
+          <div class="spacer"></div>
+          <div class="cost" id="costTxt">—</div>
+          <button class="go" id="runBtn">Lancer les recherches</button>
+        </div>
+        <div class="tablecard" id="qlist"></div>
+      </div>
+
+      <!-- Étape 3 : résultats -->
+      <div class="section" id="rsection" style="display:none">
+        <h2>⚔️ Chaînes candidates <span class="count" id="c-r"></span></h2>
+        <div class="rstats" id="rstats"></div>
+        <div id="rlist"></div>
+        <div class="stickyfoot" id="rfoot" style="display:none">
+          <span class="cost" id="pickTxt">—</span>
+          <div class="spacer"></div>
+          <button class="go" id="linkBtn">Lier la sélection</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    function fmt(n) {
+      if (n === null || n === undefined) return "—";
+      if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + "M";
+      if (n >= 1e3) return Math.round(n / 1e3) + "k";
+      return String(n);
+    }
+    function esc(t) {
+      const d = document.createElement("div"); d.textContent = t == null ? "" : String(t); return d.innerHTML;
+    }
+    function ageTxt(m) {
+      if (m === null || m === undefined) return "—";
+      return m < 24 ? Math.round(m) + " mois" : (m / 12).toFixed(1).replace(".", ",") + " ans";
+    }
+
+    let SEEDS = [];
+    let CURRENT = null;      // channelId de la cible en cours
+    let POOL = [];           // requêtes candidates, tous modes confondus
+    let RESULTS = null;      // sortie de /api/competitors/find
+    let LINKED = new Set();  // concurrents déjà liés à CURRENT
+
+    // --- Chargement initial ---
+
+    async function loadSeeds() {
+      const sel = document.getElementById("seed");
+      try {
+        const rows = await fetch("/api/target/channels").then(r => r.json());
+        SEEDS = rows.filter(c => Number(c.is_seed) === 1);
+        if (!SEEDS.length) {
+          sel.innerHTML = '<option value="">Aucune chaîne 🎯 — marques-en une dans Channel Crawl</option>';
+          document.getElementById("genBtn").disabled = true;
+          return;
+        }
+        sel.innerHTML = SEEDS.map(c =>
+          `<option value="${esc(c.channel_id)}">${esc(c.channel_title)} — ${c.crawled_videos} vidéos</option>`
+        ).join("");
+
+        const preset = new URLSearchParams(location.search).get("channelId");
+        if (preset && SEEDS.some(c => c.channel_id === preset)) sel.value = preset;
+        syncChanLabel();
+      } catch {
+        sel.innerHTML = '<option value="">Erreur de chargement</option>';
+      }
+    }
+
+    function syncChanLabel() {
+      const c = SEEDS.find(s => s.channel_id === document.getElementById("seed").value);
+      document.getElementById("s-chan").textContent = c ? c.channel_title : "—";
+    }
+
+    async function loadQuota() {
+      try {
+        const q = await fetch("/api/quota").then(r => r.json());
+        document.getElementById("s-quota").textContent = q.used + " / " + q.limit;
+      } catch {}
+    }
+
+    // Concurrents déjà liés à cette source : ils seront grisés dans les résultats.
+    async function loadLinked(channelId) {
+      try {
+        const rows = await fetch("/api/competitors/links/" + encodeURIComponent(channelId)).then(r => r.json());
+        LINKED = new Set(rows.map(r => r.channel_id));
+      } catch { LINKED = new Set(); }
+    }
+
+    // --- Étape 1 -> 2 : générer les requêtes (gratuit) ---
+
+    async function generate() {
+      const channelId = document.getElementById("seed").value;
+      if (!channelId) return;
+      const mode = document.getElementById("mode").value;
+      const count = Number(document.getElementById("count").value);
+      const btn = document.getElementById("genBtn");
+
+      // Changement de cible : on repart de zéro.
+      if (CURRENT !== channelId) {
+        POOL = [];
+        RESULTS = null;
+        document.getElementById("rsection").style.display = "none";
+        CURRENT = channelId;
+        await loadLinked(channelId);
+      }
+
+      btn.disabled = true;
+      const label = btn.textContent;
+      btn.textContent = "…";
+      try {
+        const res = await fetch("/api/competitors/queries", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channelId, count, mode }),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur"); return; }
+
+        // Première génération : on garde la présélection du serveur.
+        // Génération suivante (autre mode) : tout arrive décoché, pour ne pas
+        // doubler la facture sans que tu l'aies décidé.
+        const keepPresel = POOL.length === 0;
+        const known = new Set(POOL.map(q => q.key));
+
+        for (const q of json.queries) {
+          const key = q.query.toLowerCase();
+          if (known.has(key)) continue;
+          known.add(key);
+          POOL.push({
+            key,
+            query: q.query,
+            mode: json.mode,
+            views: q.views,
+            sourceTitle: q.sourceTitle,
+            terms: q.terms,
+            similarTo: q.similarTo,
+            selected: keepPresel ? Boolean(q.selected) : false,
+          });
+        }
+
+        document.getElementById("qsection").style.display = "";
+        renderQueries();
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    }
+
+    function renderQueries() {
+      const box = document.getElementById("qlist");
+      document.getElementById("c-q").textContent = `(${POOL.length})`;
+
+      box.innerHTML = POOL.map((q, i) => {
+        const meta = q.sourceTitle
+          ? `${fmt(q.views)} vues${q.docFreq > 1 ? ` · dans ${q.docFreq} titres` : ""} — ${esc(q.sourceTitle)}`
+          : "";
+        return `
+          <div class="qrow${q.similarTo ? " dim" : ""}">
+            <input type="checkbox" data-i="${i}"${q.selected ? " checked" : ""}>
+            <div class="qtxt">
+              <div class="qmain">${esc(q.query)}<span class="qmode">${q.mode === "segments" ? "fragment" : "titre complet"}</span></div>
+              <div class="qmeta">${meta}${q.similarTo ? " · recoupe une autre requête" : ""}</div>
+            </div>
+          </div>`;
+      }).join("");
+
+      updateEstimate();
+    }
+
+    function updateEstimate() {
+      const n = POOL.filter(q => q.selected).length;
+      // Plancher : recherches + enrichissement. Plafond : + inspections de format.
+      const min = n ? n * 100 + 2 : 0;
+      const max = n ? n * 101 + 121 : 0;
+      const txt = n ? `${n} requête${n > 1 ? "s" : ""} · <b>${min} à ${max} u</b>` : "aucune requête cochée";
+      document.getElementById("costTxt").innerHTML = txt;
+      document.getElementById("s-sel").textContent = n;
+      document.getElementById("s-cost").textContent = n ? `${min}–${max} u` : "—";
+      document.getElementById("runBtn").disabled = n === 0;
+    }
+
+    // --- Étape 2 -> 3 : lancer les recherches (payant) ---
+
+    async function runSearch() {
+      const queries = POOL.filter(q => q.selected).map(q => q.query);
+      if (!queries.length || !CURRENT) return;
+      if (queries.length > 10) { alert("Maximum 10 requêtes par lancement."); return; }
+
+      const btn = document.getElementById("runBtn");
+      btn.disabled = true;
+      const label = btn.textContent;
+      btn.textContent = "⏳ Recherche… (30 s à 2 min)";
+
+      try {
+        const res = await fetch("/api/competitors/find", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channelId: CURRENT, queries }),
+        });
+        const json = await res.json();
+        if (!res.ok) { alert(json.error || "Erreur"); return; }
+
+        RESULTS = json;
+        RESULTS.competitors.forEach(c => { c._pick = false; });
+        renderResults();
+        loadQuota();
+        document.getElementById("rsection").scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (err) {
+        alert("Erreur réseau : " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    }
+
+    function renderResults() {
+      const r = RESULTS;
+      document.getElementById("rsection").style.display = "";
+      document.getElementById("c-r").textContent = `(${r.competitors.length})`;
+
+      document.getElementById("rstats").innerHTML = `
+        <span><b>${r.competitors.length}</b> retenues</span>
+        <span><b>${r.rejectedSingle}</b> écartées (1 seule requête)</span>
+        <span><b>${r.rejectedShorts}</b> écartées (chaînes à Shorts)</span>
+        <span><b>${r.inspectionsDone ?? 0}</b> inspectées en détail</span>
+        <span>quota consommé : <b>${r.quotaUsed} u</b></span>`;
+
+      const total = r.queriesUsed.length;
+      const box = document.getElementById("rlist");
+
+      if (!r.competitors.length) {
+        box.innerHTML = '<div class="empty">Aucune chaîne ne remonte sur au moins deux requêtes. Essaie d\'autres requêtes, ou l\'autre mode.</div>';
+        document.getElementById("rfoot").style.display = "none";
+        return;
+      }
+
+      box.innerHTML = r.competitors.map((c, i) => {
+        const isLinked = LINKED.has(c.channelId);
+        const samples = (c.sampleVideos || []).map(v =>
+          `<a href="https://www.youtube.com/watch?v=${esc(v.videoId)}" target="_blank" rel="noopener">▸ ${esc(v.title)} <span class="sv">— ${fmt(v.views)} vues</span></a>`
+        ).join("");
+
+        return `
+          <div class="bocard${isLinked ? " linked" : ""}">
+            <div class="bohead">
+              ${isLinked ? "" : `<input type="checkbox" class="bopick" data-r="${i}"${c._pick ? " checked" : ""}>`}
+              <span class="boname"><a href="https://www.youtube.com/channel/${esc(c.channelId)}" target="_blank" rel="noopener">${esc(c.channelTitle)}</a></span>
+              ${c.handle ? `<span class="bohandle">${esc(c.handle)}</span>` : ""}
+              ${isLinked ? '<span class="lbadge">déjà lié</span>' : ""}
+              <span class="boscore">${c.score}</span>
+            </div>
+            <div class="bogrid">
+              <div class="bo"><div class="bolbl">Abonnés</div><div class="boval">${fmt(c.subscribers)}</div></div>
+              <div class="bo"><div class="bolbl">Co-occurrence</div><div class="boval">${c.queryCount} / ${total}</div></div>
+              <div class="bo"><div class="bolbl">Âge</div><div class="boval">${ageTxt(c.ageMonths)}</div></div>
+              <div class="bo"><div class="bolbl">Shorts</div><div class="boval">${c.shortRatio === null || c.shortRatio === undefined ? "—" : c.shortRatio + " %"}</div></div>
+              <div class="bo"><div class="bolbl">Abo / vidéo longue</div><div class="boval">${fmt(c.realDensity)}</div></div>
+              <div class="bo"><div class="bolbl">Vues médianes</div><div class="boval">${fmt(c.medianLongViews)}</div></div>
+            </div>
+            ${samples ? `<div class="samples">${samples}</div>` : ""}
+          </div>`;
+      }).join("");
+
+      document.getElementById("rfoot").style.display = "";
+      updatePick();
+    }
+
+    function updatePick() {
+      const n = RESULTS ? RESULTS.competitors.filter(c => c._pick).length : 0;
+      document.getElementById("pickTxt").textContent = n
+        ? `${n} chaîne${n > 1 ? "s" : ""} sélectionnée${n > 1 ? "s" : ""}`
+        : "aucune chaîne sélectionnée";
+      document.getElementById("linkBtn").disabled = n === 0;
+    }
+
+    // --- Étape 4 : lier les chaînes retenues ---
+
+    async function linkSelected() {
+      const picked = RESULTS.competitors.filter(c => c._pick);
+      if (!picked.length) return;
+
+      const btn = document.getElementById("linkBtn");
+      btn.disabled = true;
+      const label = btn.textContent;
+      btn.textContent = "…";
+
+      const failed = [];
+      for (const c of picked) {
+        try {
+          const res = await fetch("/api/competitors/link", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sourceChannelId: CURRENT,
+              competitorChannelId: c.channelId,
+              competitorTitle: c.channelTitle,
+              via: "keyword_overlap",
+              score: c.score,
+            }),
+          });
+          const j = await res.json();
+          if (!res.ok) throw new Error(j.error || "Erreur");
+          LINKED.add(c.channelId);
+          c._pick = false;
+        } catch (err) {
+          failed.push(`${c.channelTitle} : ${err.message}`);
+        }
+      }
+
+      btn.textContent = label;
+      renderResults();
+
+      if (failed.length) alert("Échecs :\n" + failed.join("\n"));
+      else alert(`${picked.length} chaîne(s) liée(s). Elles seront crawlées par le 🕸️ (bouton dans Channel Crawl, ou automatiquement cette nuit).`);
+    }
+
+    // --- Événements (délégation : les requêtes contiennent des apostrophes) ---
+
+    document.getElementById("qlist").addEventListener("change", e => {
+      const i = e.target.dataset.i;
+      if (i === undefined) return;
+      POOL[Number(i)].selected = e.target.checked;
+      updateEstimate();
+    });
+
+    document.getElementById("rlist").addEventListener("change", e => {
+      const i = e.target.dataset.r;
+      if (i === undefined) return;
+      RESULTS.competitors[Number(i)]._pick = e.target.checked;
+      updatePick();
+    });
+
+    document.getElementById("seed").addEventListener("change", syncChanLabel);
+    document.getElementById("genBtn").addEventListener("click", generate);
+    document.getElementById("runBtn").addEventListener("click", runSearch);
+    document.getElementById("linkBtn").addEventListener("click", linkSelected);
+
+    loadSeeds();
+    loadQuota();
+  </script>
+  <script src="/nav.js"></script>
+</body>
+</html>

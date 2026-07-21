@@ -572,14 +572,16 @@ app.post('/api/target/seed', async (req, res) => {
 });
 
 // Propose les requêtes de recherche à partir des vidéos d'une chaîne cible. Gratuit.
+// mode: 'titles' (titres des top vidéos) | 'lexical' (vocabulaire récurrent).
 app.post('/api/competitors/queries', async (req, res) => {
   const channelId = (req.body?.channelId || '').trim();
   if (!channelId) return res.status(400).json({ error: 'channelId requis.' });
 
   const count = Math.min(Math.max(Number(req.body?.count) || 5, 1), 10);
+  const mode = req.body?.mode === 'segments' ? 'segments' : 'titles';
 
   try {
-    const out = await buildQueries(channelId, { count });
+    const out = await buildQueries(channelId, { count, mode });
     res.json(out);
   } catch (err) {
     console.error('💥 /api/competitors/queries :', err.message);
