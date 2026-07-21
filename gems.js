@@ -195,6 +195,40 @@ async function videoGems() {
     }));
 }
 
+// Vidéos des chaînes cibles et concurrentes (bloc concurrentiel).
+// Alimenté par le relevé quotidien de watch.js sur target_video_stats.
+async function targetVideoGems() {
+  const deltas = await windowedDeltas(
+    'target_video_stats', 'video_id', 'views', 'target_videos', 'video_id'
+  );
+  const ids = deltas.map(d => d.entityId);
+  if (!ids.length) return [];
+
+  const [titles] = await pool.query(
+    `SELECT v.video_id, v.title, c.channel_title
+     FROM target_videos v
+     LEFT JOIN target_channels c ON c.channel_id = v.channel_id
+     WHERE v.video_id IN (?)`,
+    [ids]
+  );
+  const meta = Object.fromEntries(titles.map(t => [t.video_id, t]));
+
+  return deltas
+    .filter(d => isSignificant(d.recent, d.previous, d.base, MIN_ABS_VIEWS))
+    .map(d => ({
+      kind: 'target_video_views',
+      entityId: d.entityId,
+      label: meta[d.entityId]?.title || d.entityId,
+      handle: meta[d.entityId]?.channel_title || null,
+      metric: 'views',
+      base: d.base,
+      current: d.current,
+      previous: d.previous,
+      recent: d.recent,
+      score: score(d.recent, d.previous, d.base),
+    }));
+}
+
 // --- Découverte : signaux issus du scan nocturne ---
 // Même score composite que index.html, pour rester cohérent avec l'affichage.
 
@@ -293,22 +327,23 @@ async function saveGems(gems) {
 export async function run(scanOutputs = []) {
   const started = Date.now();
 
-  const [chans, targets, vids] = await Promise.all([
+  const [chans, targets, vids, targetVids] = await Promise.all([
     channelGems(),
     targetGems(),
     videoGems(),
+    targetVideoGems(),
   ]);
 
   const discovered = discoveryGems(scanOutputs);
 
-  const gems = [...chans, ...targets, ...vids, ...discovered].sort((a, b) => b.score - a.score);
+  const gems = [...chans, ...targets, ...vids, ...targetVids, ...discovered].sort((a, b) => b.score - a.score);
   const saved = await saveGems(gems);
 
   const secs = ((Date.now() - started) / 1000).toFixed(1);
   console.log(
     `[gems] ${new Date().toISOString()} — ` +
     `${chans.length} chaînes suivies, ${targets.length} cibles, ${vids.length} vidéos, ` +
-    `${discovered.length} découvertes ` +
+    `${targetVids.length} vidéos cibles, ${discovered.length} découvertes ` +
     `| ${saved} signal(aux) enregistré(s) | fenêtre ${WINDOW}j | ${secs}s`
   );
 

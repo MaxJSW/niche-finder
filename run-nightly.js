@@ -9,6 +9,7 @@ dns.setDefaultResultOrder('ipv4first');
 
 import { run as runWatch } from './watch.js';
 import { run as runScanAuto } from './scan-auto.js';
+import { run as runCrawlCompetitors } from './crawl-competitors.js';
 import { run as runGems } from './gems.js';
 import { run as runDigest } from './digest.js';
 import { pool } from './db.js';
@@ -31,6 +32,12 @@ async function main() {
   }
 
 try {
+    await runCrawlCompetitors({ reserve: 2000 });
+  } catch (err) {
+    console.error('[nightly] crawl-competitors échoué :', err.message);
+  }
+
+  try {
     await runGems(outputs);
   } catch (err) {
     console.error('[nightly] gems échoué :', err.message);

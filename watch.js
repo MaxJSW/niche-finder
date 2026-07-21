@@ -59,6 +59,15 @@ async function getTargetChannels() {
   return rows.map(r => r.channel_id);
 }
 
+// Vidéos longues des chaînes cibles/concurrentes : relevé de vues quotidien,
+// nécessaire à la détection d'accélération (gems) sur target_video_stats.
+async function getTargetVideos() {
+  const [rows] = await pool.query(
+    'SELECT video_id FROM target_videos WHERE duration_seconds >= 120'
+  );
+  return rows.map(r => r.video_id);
+}
+
 // --- Récupération API ---
 
 // Stats des chaînes : subscribers, total views, video count.
@@ -139,6 +148,20 @@ async function saveVideoStats(conn, videoId, views, subscribers) {
   );
 }
 
+// Relevé vidéo cible (bloc concurrentiel) — un par vidéo et par jour (uniq_target_video_day).
+async function saveTargetVideoStats(conn, videoId, s) {
+  await conn.query(
+    `INSERT INTO target_video_stats
+       (video_id, views, likes, comments, captured_at, captured_date)
+     VALUES (?, ?, ?, ?, NOW(), ?)
+     ON DUPLICATE KEY UPDATE views = VALUES(views),
+                             likes = VALUES(likes),
+                             comments = VALUES(comments),
+                             captured_at = VALUES(captured_at)`,
+    [videoId, s.views ?? null, s.likes ?? null, s.comments ?? null, today()]
+  );
+}
+
 // Relevé chaîne crawlée (bloc concurrentiel).
 async function saveTargetChannelStats(conn, channelId, stats) {
   await conn.query(
@@ -163,6 +186,7 @@ async function run() {
   const followed = await getFollowedChannels();
   const pinned = await getPinnedVideos();
   const targets = await getTargetChannels();
+  const targetVids = await getTargetVideos();
 
   // Chaînes suivies + chaînes des vidéos épinglées : un seul appel API pour les deux.
   const channelIds = [...new Set([...followed, ...pinned.map(v => v.channel_id)])];
@@ -171,11 +195,13 @@ async function run() {
   const channelStats = channelIds.length ? await fetchChannelStats(channelIds) : new Map();
   const videoStats = videoIds.length ? await fetchVideoStats(videoIds) : new Map();
   const targetStats = targets.length ? await fetchChannelStats(targets) : new Map();
+  const targetVideoStats = targetVids.length ? await fetchVideoStats(targetVids) : new Map();
 
   const report = {
     channels: 0, channelsMissing: 0,
     videos: 0, videosMissing: 0,
     targets: 0, targetsMissing: 0,
+    targetVideos: 0, targetVideosMissing: 0,
   };
 
   const conn = await pool.getConnection();
@@ -204,6 +230,13 @@ async function run() {
       report.targets++;
     }
 
+    for (const id of targetVids) {
+      const s = targetVideoStats.get(id);
+      if (!s) { report.targetVideosMissing++; continue; }
+      await saveTargetVideoStats(conn, id, s);
+      report.targetVideos++;
+    }
+
     await conn.commit();
   } catch (err) {
     await conn.rollback();
@@ -215,9 +248,11 @@ async function run() {
   const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
   console.log(
     `[watch] ${new Date().toISOString()} — ` +
-    `${report.channels} chaînes, ${report.videos} vidéos, ${report.targets} targets ` +
+    `${report.channels} chaînes, ${report.videos} vidéos, ${report.targets} targets, ` +
+    `${report.targetVideos} vidéos cibles ` +
     `| introuvables : ${report.channelsMissing} chaînes, ${report.videosMissing} vidéos, ` +
-    `${report.targetsMissing} targets | ${quotaUsed}u | ${seconds}s`
+    `${report.targetsMissing} targets, ${report.targetVideosMissing} vidéos cibles ` +
+    `| ${quotaUsed}u | ${seconds}s`
   );
 
   return report;

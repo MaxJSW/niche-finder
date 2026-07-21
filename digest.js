@@ -49,7 +49,7 @@ async function markNotified(ids) {
 // --- Mise en forme ---
 
 function gemUrl(g) {
-  if (g.kind === 'scan_discovery' || g.kind === 'video_views') {
+  if (g.kind === 'scan_discovery' || g.kind === 'video_views' || g.kind === 'target_video_views') {
     return `https://www.youtube.com/watch?v=${g.entity_id}`;
   }
   return `https://www.youtube.com/channel/${g.entity_id}`;
@@ -63,6 +63,7 @@ function toPromptLines(gems) {
     }
     const what = g.kind === 'channel_subs' ? 'chaîne suivie'
                : g.kind === 'target_subs' ? 'chaîne cible'
+               : g.kind === 'target_video_views' ? 'vidéo concurrente'
                : 'vidéo épinglée';
     return `${i + 1}. [ACCÉLÉRATION · ${what}] "${g.label}" — +${fmt(g.recent_delta)} ${g.metric} sur la période récente contre +${fmt(g.previous_delta)} sur la précédente · total ${fmt(g.current_value)} · score ${g.score}`;
   }).join('\n');
@@ -110,6 +111,7 @@ function buildHtml(summary, gems) {
     const badge = g.kind === 'scan_discovery' ? '🔎 Découverte'
                 : g.kind === 'channel_subs' ? '📈 Chaîne suivie'
                 : g.kind === 'target_subs' ? '🎯 Chaîne cible'
+                : g.kind === 'target_video_views' ? '⚔️ Vidéo concurrente'
                 : '📌 Vidéo épinglée';
 
     const detail = g.kind === 'scan_discovery'
