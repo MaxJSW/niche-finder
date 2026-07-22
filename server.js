@@ -15,8 +15,9 @@ import { addQuery, listQueries, updateQuery, deleteQuery, getResults, runQuery }
 import { pinVideo, followChannel, recordScan } from './save.js';
 import { crawlChannel, resolveChannelId } from './channel.js';
 import { createLaunch, listLaunches, getLaunch, updateLaunch,
-         addLaunchChannel, removeLaunchChannel, deleteLaunch } from './launches.js';
+         addLaunchChannel, removeLaunchChannel, deleteLaunch, updatePickStatus } from './launches.js';
 import { analyzeLaunch } from './launch-analyze.js';
+import { generateIdentity } from './launch-identity.js';
 import { fetchMaterials } from './launch-materials.js';
 import { saveChannelCrawl } from './save-target.js';
 import { detectBreakouts } from './breakout.js';
@@ -951,6 +952,33 @@ app.post('/api/launches/:id/materials', async (req, res) => {
   } catch (err) {
     console.error('💥 /api/launches/materials :', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Génère le rapport « identité de chaîne » à partir du groupe de modèles seul.
+// Synchrone — un seul appel Claude, aucun crawl, aucun quota YouTube. Régénérable :
+// chaque appel insère un nouveau rapport kind='identity', le front affiche le dernier.
+app.post('/api/launches/:id/identity', async (req, res) => {
+  try {
+    console.log(`📋 Identité de chaîne — lancement ${req.params.id}`);
+    const out = await generateIdentity(Number(req.params.id));
+    console.log(`✅ Identité générée (report ${out.reportId}) · ${out.channelsUsed} chaînes, ${out.videosSampled} vidéos`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 /api/launches/identity :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Change le statut d'un pick (proposed / kept / rejected / done).
+app.patch('/api/launches/picks/:pickId', async (req, res) => {
+  try {
+    const out = await updatePickStatus(Number(req.params.pickId), req.body?.status);
+    console.log(`🏷️ Pick ${req.params.pickId} → ${out.status}`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 PATCH /api/launches/picks :', err.message);
+    res.status(400).json({ error: err.message });
   }
 });
 

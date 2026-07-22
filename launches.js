@@ -104,7 +104,7 @@ async function getLaunch(id) {
 
   // Les bilans, du plus récent au plus ancien.
   const [reports] = await pool.query(`
-    SELECT id, content, created_at
+    SELECT id, kind, content, created_at
     FROM launch_reports
     WHERE launch_id = ?
     ORDER BY created_at DESC
@@ -153,6 +153,23 @@ async function removeLaunchChannel(launchId, channelId) {
   return { removed: String(channelId).trim() };
 }
 
+// Change le statut d'un pick (proposed / kept / rejected / done).
+// C'est l'interrupteur central du suivi de production : l'IA propose,
+// toi tu décides (kept), tu écartes (rejected) ou tu marques publié (done).
+// Ces statuts nourrissent les vagues suivantes : done = ligne éditoriale
+// établie, rejected = directions à ne pas reproposer.
+async function updatePickStatus(pickId, status) {
+  const allowed = ['proposed', 'kept', 'rejected', 'done'];
+  if (!allowed.includes(status)) throw new Error(`Statut invalide : ${status}`);
+
+  const [r] = await pool.query(
+    'UPDATE launch_picks SET status = ? WHERE id = ?',
+    [status, pickId]
+  );
+  if (!r.affectedRows) throw new Error('Pick introuvable.');
+  return { pickId: Number(pickId), status };
+}
+
 // Supprime un lancement (picks, groupe et bilans via CASCADE).
 async function deleteLaunch(id) {
   const [r] = await pool.query('DELETE FROM launches WHERE id = ?', [id]);
@@ -161,4 +178,4 @@ async function deleteLaunch(id) {
 }
 
 export { createLaunch, listLaunches, getLaunch, updateLaunch,
-         addLaunchChannel, removeLaunchChannel, deleteLaunch };
+         addLaunchChannel, removeLaunchChannel, deleteLaunch, updatePickStatus };

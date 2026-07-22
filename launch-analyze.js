@@ -236,7 +236,9 @@ async function analyzeLaunch(launchId, { batchSize = 20, readQuota, addQuota, qu
     const rejectedPicks = prevPicks.filter(p => p.status === 'rejected');
 
     const [[report]] = await pool.query(
-      'SELECT content FROM launch_reports WHERE launch_id = ? ORDER BY created_at DESC LIMIT 1',
+      `SELECT content FROM launch_reports
+       WHERE launch_id = ? AND kind = 'bilan'
+       ORDER BY created_at DESC LIMIT 1`,
       [launchId]);
 
     // 1. Crawls nécessaires.

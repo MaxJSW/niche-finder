@@ -8,6 +8,7 @@ const LINKS = [
   { href: '/targets.html', label: '🎯 Channel Crawl' },
   { href: '/suggestions.html', label: '🔍 Suggestions' },
   { href: '/concurrence.html', label: '⚔️ Concurrence' },
+  { href: '/lancements.html', label: '🚀 Lancements' },
   { href: '/queries.html', label: '🔬 Analyse titres' },
   { href: '/themes.html',  label: '🏷️ Thèmes' },
   { href: '/history.html', label: '📈 Évolution' },

@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Niche Finder — Lancements</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .lcard { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; margin-bottom: 14px; cursor: pointer; }
+    .lcard:hover { border-color: var(--accent); }
+    .lcard h2 { margin: 0 0 6px; font-size: 1.02rem; }
+    .lmeta { color: var(--muted); font-size: 0.78rem; display: flex; gap: 14px; flex-wrap: wrap; }
+    .badge { font-size: 0.66rem; border-radius: 999px; padding: 2px 8px; border: 1px solid var(--border); vertical-align: middle; }
+    .badge.draft { color: var(--muted); }
+    .badge.analyzing { color: var(--amber); border-color: var(--amber); }
+    .badge.ready { color: var(--green); border-color: var(--green); }
+    .sect { background: var(--card); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 20px; overflow: hidden; }
+    .sect .shead { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+    .sect .shead h2 { margin: 0; font-size: 0.95rem; }
+    .sect .sbody { padding: 14px 20px; }
+    .btn { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; font-size: 0.82rem; cursor: pointer; }
+    .btn.sec { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .btn:disabled { opacity: 0.5; cursor: wait; }
+    .btn.danger { background: transparent; color: var(--red, #c33); border: 1px solid var(--red, #c33); }
+    .field { margin-bottom: 12px; }
+    .field label { display: block; font-size: 0.74rem; color: var(--muted); margin-bottom: 4px; }
+    .field input, .field select { width: 100%; max-width: 420px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 0.86rem; }
+    .comprow { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 0.84rem; }
+    .pickrow td { vertical-align: top; }
+    .pick-thumb { width: 100px; border-radius: 6px; display: block; }
+    .pick-why { color: var(--muted); font-size: 0.76rem; margin-top: 4px; line-height: 1.45; }
+    .pick-why b { color: var(--text); font-weight: 600; }
+    .stbadge { font-size: 0.7rem; border-radius: 999px; padding: 3px 10px; cursor: pointer; border: 1px solid var(--border); white-space: nowrap; user-select: none; }
+    .st-proposed { color: var(--muted); }
+    .st-kept { color: var(--accent); border-color: var(--accent); }
+    .st-done { color: var(--green); border-color: var(--green); }
+    .st-rejected { color: var(--red, #c33); border-color: var(--red, #c33); text-decoration: line-through; }
+    .xbtn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.9rem; }
+    .xbtn:hover { color: var(--red, #c33); }
+    .busy { color: var(--amber); font-size: 0.8rem; }
+    .resolved { color: var(--green); font-size: 0.78rem; margin-top: 4px; }
+    .batchhead { padding: 10px 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    /* Modale identité de chaîne */
+    .idsec { margin-bottom: 0; }
+    .idsec .idhead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .idsec .idhead h4 { margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+    .idsec p { margin: 0 0 6px; font-size: 0.88rem; line-height: 1.55; }
+    .idsec .sub { color: var(--muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; margin: 10px 0 3px; }
+    .idnames { display: flex; flex-direction: column; gap: 8px; }
+    .idname { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+    .idname .nm { font-weight: 600; }
+    .idtags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .idtags .badge { color: var(--text); }
+    .copy { background: none; border: 1px solid var(--border); color: var(--muted); cursor: pointer; border-radius: 7px; padding: 4px 10px; font-size: 0.74rem; white-space: nowrap; margin-left: auto; }
+    .copy:hover { color: var(--text); border-color: var(--muted); }
+    .copy.ok { color: var(--green); border-color: var(--green); }
+    /* Modale scrollable mais barre masquée */
+    .modal-bg .modal { scrollbar-width: none; -ms-overflow-style: none; }
+    .modal-bg .modal::-webkit-scrollbar { width: 0; height: 0; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side"></aside>
+    <main class="main">
+      <h1 class="page-title">Lancements</h1>
+      <div id="view"><div class="empty">Chargement…</div></div>
+    </main>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    function esc(t) { const d = document.createElement("div"); d.textContent = t || ""; return d.innerHTML; }
+    function fmt(n) {
+      if (n === null || n === undefined) return "—";
+      n = Number(n);
+      if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + "M";
+      if (n >= 1e3) return Math.round(n / 1e3) + "k";
+      return String(n);
+    }
+    function dateTxt(iso) {
+      if (!iso) return "—";
+      return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "2-digit" });
+    }
+    async function api(url, opts = {}) {
+      const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...opts });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur");
+      return data;
+    }
+    const launchId = new URLSearchParams(location.search).get("id");
+
+    // ==================== VUE LISTE ====================
+
+    async function loadList() {
+      const box = $("view");
+      let launches;
+      try { launches = await api("/api/launches"); }
+      catch (err) { box.innerHTML = `<div class="empty">Erreur : ${esc(err.message)}</div>`; return; }
+
+      box.innerHTML = `
+        <div style="margin-bottom:16px"><button class="btn" onclick="showCreate()">➕ Nouveau lancement</button></div>
+        <div id="createbox"></div>
+        ${launches.length ? launches.map(l => `
+          <div class="lcard" onclick="location.href='?id=${l.id}'">
+            <h2>${esc(l.name)} <span class="badge ${l.status}">${l.status}</span></h2>
+            <div class="lmeta">
+              <span>🎯 ${esc(l.seed_title || l.seed_channel_id || "—")}</span>
+              <span>${l.channel_count} chaîne${l.channel_count > 1 ? "s" : ""}</span>
+              <span>${l.pick_count} picks (${l.done_count} publiés)</span>
+              <span>${l.last_batch ? "vague " + l.last_batch : "pas encore analysé"}</span>
+              <span>${dateTxt(l.created_at)}</span>
+            </div>
+          </div>`).join("")
+        : '<div class="empty">Aucun lancement. Crée le premier !</div>'}`;
+    }
+
+    async function showCreate() {
+      let seeds;
+      try {
+        const all = await api("/api/target/channels");
+        seeds = all.filter(c => c.is_seed);
+      } catch (err) { alert(err.message); return; }
+
+      $("createbox").innerHTML = `
+        <div class="sect"><div class="sbody">
+          <div class="field"><label>Nom du lancement</label><input id="c-name" placeholder="ex. Dino EN #1"></div>
+          <div class="field"><label>Langue cible</label>
+            <select id="c-lang"><option value="en">Anglais</option><option value="es">Espagnol</option><option value="fr">Français</option><option value="de">Allemand</option><option value="pt">Portugais</option></select>
+          </div>
+          <div class="field"><label>Chaîne modèle (🎯)</label>
+            <select id="c-seed" onchange="loadSetupComps()"><option value="">— choisir —</option>
+              ${seeds.map(s => `<option value="${s.channel_id}">${esc(s.channel_title)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field"><label>Concurrents liés</label><div id="c-comps" style="font-size:0.82rem;color:var(--muted)">Choisis d'abord la chaîne modèle.</div></div>
+          <button class="btn" onclick="createLaunch()">Créer</button>
+          <button class="btn sec" onclick="$('createbox').innerHTML=''">Annuler</button>
+        </div></div>`;
+    }
+
+    async function loadSetupComps() {
+      const seedId = $("c-seed").value;
+      const box = $("c-comps");
+      if (!seedId) { box.innerHTML = "Choisis d'abord la chaîne modèle."; return; }
+      try {
+        const comps = await api(`/api/launches/setup/${seedId}`);
+        box.innerHTML = comps.length
+          ? comps.map(c => `<label class="comprow"><input type="checkbox" class="compcb" value="${c.competitor_channel_id || c.channel_id}" checked> ${esc(c.competitor_title || c.channel_title || c.competitor_channel_id || c.channel_id)}</label>`).join("")
+          : "Aucun concurrent lié à cette chaîne (tu pourras en ajouter après création).";
+      } catch (err) { box.innerHTML = `Erreur : ${esc(err.message)}`; }
+    }
+
+    async function createLaunch() {
+      const name = $("c-name").value.trim();
+      const seedChannelId = $("c-seed").value;
+      if (!name || !seedChannelId) { alert("Nom et chaîne modèle requis."); return; }
+      const competitorIds = [...document.querySelectorAll(".compcb:checked")].map(cb => cb.value);
+      try {
+        const out = await api("/api/launches", { method: "POST",
+          body: JSON.stringify({ name, seedChannelId, competitorIds }) });
+        await api(`/api/launches/${out.launchId}`, { method: "PATCH",
+          body: JSON.stringify({ target_language: $("c-lang").value }) });
+        location.href = `?id=${out.launchId}`;
+      } catch (err) { alert(err.message); }
+    }
+
+    // ==================== VUE DÉTAIL ====================
+
+    let D = null;   // détail courant
+
+    async function loadDetail() {
+      const box = $("view");
+      try { D = await api(`/api/launches/${launchId}`); }
+      catch (err) { box.innerHTML = `<div class="empty">Erreur : ${esc(err.message)}</div>`; return; }
+
+      const l = D.launch;
+      const batches = [...new Set(D.picks.map(p => p.batch))].sort((a, b) => a - b);
+      const hasIdentity = (D.reports || []).some(r => r.kind === "identity");
+
+      box.innerHTML = `
+        <div style="margin-bottom:14px"><a href="/lancements.html" style="color:var(--muted);font-size:0.8rem">← Tous les lancements</a></div>
+
+        <div class="sect"><div class="shead">
+          <h2>${esc(l.name)} <span class="badge ${l.status}">${l.status}</span></h2>
+          <span style="margin-left:auto;color:var(--muted);font-size:0.78rem">langue cible : <b>${esc(l.target_language)}</b></span>
+        </div>
+        <div class="sbody">
+          <div class="field"><label>Ma chaîne lancée (ID UC... — active le bilan)</label>
+            <input id="own-id" value="${esc(l.own_channel_id || "")}" placeholder="UC...">
+            <button class="btn sec" style="margin-top:6px" onclick="saveOwn()">Enregistrer</button>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+            <button class="btn" id="btn-analyze" onclick="runAnalyze()">🧠 ${batches.length ? "Proposer la vague suivante" : "Analyser (vague 1)"}</button>
+            <button class="btn sec" id="btn-identity" onclick="openIdentity()">📋 ${hasIdentity ? "Identité de chaîne" : "Générer l'identité"}</button>
+            <button class="btn sec" id="btn-materials" onclick="runMaterials()" ${D.picks.length ? "" : "disabled"}>📦 Récupérer le matériel</button>
+            <button class="btn sec" disabled title="Bientôt — nécessite own_channel_id">📊 Bilan</button>
+            <button class="btn danger" style="margin-left:auto" onclick="delLaunch()">🗑️ Supprimer</button>
+          </div>
+          <div id="busy" class="busy" style="margin-top:8px"></div>
+        </div></div>
+
+        <div class="sect">
+          <div class="shead"><h2>Groupe (${D.channels.length})</h2></div>
+          <div class="sbody">
+            ${D.channels.map(c => `
+              <div class="comprow">
+                <span class="badge">${c.role}</span>
+                <span>${esc(c.channel_title || c.channel_id)}</span>
+                <span style="color:var(--muted)">· ${fmt(c.subscribers)} abo · ${c.crawled_videos} vidéos en base</span>
+                ${c.role !== "seed" ? `<button class="xbtn" onclick="removeChan('${c.channel_id}')">✕</button>` : ""}
+              </div>`).join("")}
+            <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+              <input id="add-chan" placeholder="UC..., @handle ou URL" style="max-width:280px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:0.82rem">
+              <button class="btn sec" onclick="addChan()">➕ Ajouter</button>
+            </div>
+            <div id="add-info" class="resolved"></div>
+          </div>
+        </div>
+
+        ${batches.map(b => `
+          <div class="sect">
+            <div class="batchhead" style="border-top:none">Vague ${b} — ${D.picks.filter(p => p.batch === b).length} picks</div>
+            <div class="tablecard"><table>
+              <thead><tr><th style="width:44px">#</th><th style="width:116px"></th><th>Vidéo</th><th style="width:110px">Statut</th><th style="width:36px"></th></tr></thead>
+              <tbody>
+                ${D.picks.filter(p => p.batch === b).map(p => `
+                  <tr class="pickrow">
+                    <td class="num">${p.rank_position}</td>
+                    <td>${p.thumbnail ? `<img class="pick-thumb" src="${p.thumbnail}" loading="lazy">` : ""}</td>
+                    <td class="title">
+                      <a href="https://www.youtube.com/watch?v=${p.video_id}" target="_blank" rel="noopener">${esc(p.title || p.video_id)}</a>
+                      <span style="color:var(--muted);font-size:0.74rem"> · ${esc(p.channel_title || "")} ${p.has_transcript ? "· ✅ transcrit" : "· 📝 à transcrire"}</span>
+                      <div class="pick-why"><b>Pourquoi :</b> ${esc(p.reason || "—")}<br><b>Angle :</b> ${esc(p.angle || "—")}</div>
+                    </td>
+                    <td><span class="stbadge st-${p.status}" onclick="cycleStatus(${p.id}, '${p.status}')">${p.status}</span></td>
+                    <td>${p.status !== "rejected"
+                          ? `<button class="xbtn" title="Rejeter" onclick="setStatus(${p.id}, 'rejected')">✕</button>`
+                          : `<button class="xbtn" title="Restaurer" onclick="setStatus(${p.id}, 'proposed')">↩</button>`}</td>
+                  </tr>`).join("")}
+              </tbody>
+            </table></div>
+          </div>`).join("")}
+        ${!batches.length ? '<div class="empty">Pas encore de picks — lance l\'analyse.</div>' : ""}`;
+    }
+
+    async function saveOwn() {
+      try {
+        await api(`/api/launches/${launchId}`, { method: "PATCH",
+          body: JSON.stringify({ own_channel_id: $("own-id").value.trim() }) });
+        loadDetail();
+      } catch (err) { alert(err.message); }
+    }
+
+    async function delLaunch() {
+      if (!confirm("Supprimer ce lancement (picks et bilans inclus) ?")) return;
+      try { await api(`/api/launches/${launchId}`, { method: "DELETE" }); location.href = "/lancements.html"; }
+      catch (err) { alert(err.message); }
+    }
+
+    async function addChan() {
+      const input = $("add-chan").value.trim();
+      if (!input) return;
+      $("add-info").textContent = "Résolution…";
+      try {
+        const out = await api(`/api/launches/${launchId}/channels`, { method: "POST",
+          body: JSON.stringify({ channel: input, role: "extra" }) });
+        $("add-info").textContent = `Ajouté : ${out.channelId} — vérifie le nom dans la liste après crawl.`;
+        loadDetail();
+      } catch (err) { $("add-info").textContent = "Erreur : " + err.message; }
+    }
+
+    async function removeChan(channelId) {
+      try { await api(`/api/launches/${launchId}/channels/${channelId}`, { method: "DELETE" }); loadDetail(); }
+      catch (err) { alert(err.message); }
+    }
+
+    const CYCLE = { proposed: "kept", kept: "done", done: "proposed" };
+    async function cycleStatus(pickId, current) {
+      if (current === "rejected") return;
+      setStatus(pickId, CYCLE[current] || "proposed");
+    }
+    async function setStatus(pickId, status) {
+      try { await api(`/api/launches/picks/${pickId}`, { method: "PATCH", body: JSON.stringify({ status }) }); loadDetail(); }
+      catch (err) { alert(err.message); }
+    }
+
+    async function runAnalyze() {
+      const size = prompt("Taille de la vague ?", D.picks.length ? "10" : "20");
+      if (!size) return;
+      $("btn-analyze").disabled = true;
+      $("busy").textContent = "🧠 Analyse en cours (crawls + IA, jusqu'à 3 min)…";
+      try {
+        const out = await api(`/api/launches/${launchId}/analyze`, { method: "POST",
+          body: JSON.stringify({ batchSize: Number(size) }) });
+        $("busy").textContent = `✅ Vague ${out.batch} : ${out.picksInserted} picks.`;
+        loadDetail();
+      } catch (err) { $("busy").textContent = ""; alert(err.message); $("btn-analyze").disabled = false; }
+    }
+
+    async function runMaterials() {
+      $("btn-materials").disabled = true;
+      $("busy").textContent = "📦 Récupération du matériel (~15 s par vidéo)…";
+      try {
+        const out = await api(`/api/launches/${launchId}/materials`, { method: "POST", body: JSON.stringify({}) });
+        $("busy").textContent = `✅ ${out.summary.transcriptsOk}/${out.summary.total} transcriptions · ${out.summary.thumbnailsOk}/${out.summary.total} miniatures.`;
+        loadDetail();
+      } catch (err) { $("busy").textContent = ""; alert(err.message); $("btn-materials").disabled = false; }
+    }
+
+    // ==================== IDENTITÉ DE CHAÎNE (modale) ====================
+
+    let CURR_ID = null;   // identité affichée dans la modale (source des copies)
+
+    // Ouvre depuis le cache si un rapport identity existe, sinon génère.
+    function openIdentity() {
+      const existing = (D.reports || []).find(r => r.kind === "identity");
+      if (existing) {
+        try { renderIdentityModal(JSON.parse(existing.content), existing.created_at); return; }
+        catch { /* contenu corrompu → on régénère */ }
+      }
+      genIdentity();
+    }
+
+    // Génération depuis le bouton de la page (indicateur dans #busy).
+    async function genIdentity() {
+      const btn = $("btn-identity");
+      if (btn) btn.disabled = true;
+      $("busy").textContent = "📋 Génération de l'identité de chaîne (IA, ~15 s)…";
+      try {
+        const out = await api(`/api/launches/${launchId}/identity`, { method: "POST", body: JSON.stringify({}) });
+        $("busy").textContent = "✅ Identité générée.";
+        renderIdentityModal(out.identity, null);
+        loadDetail();   // rafraîchit D.reports → réouverture sans rappeler l'IA
+      } catch (err) {
+        $("busy").textContent = "";
+        alert(err.message);
+        if ($("btn-identity")) $("btn-identity").disabled = false;
+      }
+    }
+
+    // Régénération depuis l'intérieur de la modale (indicateur sur le bouton).
+    async function regenFromModal(btn) {
+      btn.disabled = true;
+      const old = btn.textContent;
+      btn.textContent = "⏳ Génération…";
+      try {
+        const out = await api(`/api/launches/${launchId}/identity`, { method: "POST", body: JSON.stringify({}) });
+        renderIdentityModal(out.identity, null);   // remplace la modale courante
+        loadDetail();
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = old;
+      }
+    }
+
+    function copyName(i, btn) { copyText((CURR_ID.channel_names || [])[i], btn); }
+    function copyField(key, btn) {
+      const v = key === "tags" ? (CURR_ID.tags || []).join(", ") : CURR_ID[key];
+      copyText(String(v || ""), btn);
+    }
+
+    async function copyText(text, btn) {
+      try { await navigator.clipboard.writeText(text); }
+      catch {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); } catch {}
+        ta.remove();
+      }
+      if (btn) {
+        const old = btn.textContent;
+        btn.textContent = "✓ Copié"; btn.classList.add("ok");
+        setTimeout(() => { btn.textContent = old; btn.classList.remove("ok"); }, 1400);
+      }
+    }
+
+    function closeModal() {
+      const bg = document.querySelector(".modal-bg");
+      if (bg) bg.remove();
+    }
+
+    function renderIdentityModal(identity, createdAt) {
+      closeModal();
+      CURR_ID = identity;
+      const names = Array.isArray(identity.channel_names) ? identity.channel_names : [];
+      const tags = Array.isArray(identity.tags) ? identity.tags : [];
+      const el = identity.editorial_line || {};
+      const fm = identity.format || {};
+
+      const bg = document.createElement("div");
+      bg.className = "modal-bg";
+      bg.onclick = e => { if (e.target === bg) closeModal(); };
+      bg.innerHTML = `
+        <div class="modal">
+          <button class="mclose" onclick="closeModal()">✕</button>
+          <h3>📋 Identité de chaîne</h3>
+          <div class="msub">Généré par l'IA à partir du groupe de modèles · ${createdAt ? dateTxt(createdAt) : "à l'instant"} — à coller lors de la création de la chaîne YouTube.</div>
+
+          <div class="bocard"><div class="idsec">
+            <div class="idhead"><h4>Noms proposés</h4></div>
+            <div class="idnames">
+              ${names.map((n, i) => `<div class="idname"><span class="nm">${esc(n)}</span><button class="copy" onclick="copyName(${i}, this)">📋 Copier</button></div>`).join("")}
+            </div>
+          </div></div>
+
+          <div class="bocard"><div class="idsec">
+            <div class="idhead"><h4>Bio / description</h4><button class="copy" onclick="copyField('bio', this)">📋 Copier</button></div>
+            <p>${esc(identity.bio || "—")}</p>
+          </div></div>
+
+          <div class="bocard"><div class="idsec">
+            <div class="idhead"><h4>Tags SEO (${tags.length})</h4><button class="copy" onclick="copyField('tags', this)">📋 Copier (virgules)</button></div>
+            <div class="idtags">${tags.map(t => `<span class="badge">${esc(t)}</span>`).join("")}</div>
+          </div></div>
+
+          <div class="bocard"><div class="idsec">
+            <div class="idhead"><h4>Ligne éditoriale</h4></div>
+            <div class="sub">Ce que la chaîne couvre</div><p>${esc(el.covers || "—")}</p>
+            <div class="sub">Ce qu'elle évite</div><p>${esc(el.avoids || "—")}</p>
+          </div></div>
+
+          <div class="bocard"><div class="idsec">
+            <div class="idhead"><h4>Format</h4></div>
+            <div class="sub">Durée cible</div><p>${esc(fm.target_duration || "—")}</p>
+            <div class="sub">Structure type</div><p>${esc(fm.structure || "—")}</p>
+          </div></div>
+
+          <div class="bocard"><div class="idsec">
+            <div class="idhead"><h4>Rythme de publication</h4></div>
+            <p>${esc(identity.publishing_rhythm || "—")}</p>
+          </div></div>
+
+          <div class="bocard"><div class="idsec">
+            <div class="idhead"><h4>Ton & style</h4></div>
+            <p>${esc(identity.tone || "—")}</p>
+          </div></div>
+
+          <div style="display:flex;gap:8px;margin-top:16px">
+            <button class="btn sec" onclick="regenFromModal(this)">🔄 Régénérer</button>
+            <button class="btn sec" onclick="closeModal()">Fermer</button>
+          </div>
+        </div>`;
+      document.body.appendChild(bg);
+    }
+
+    document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+    launchId ? loadDetail() : loadList();
+  </script>
+  <script src="/nav.js"></script>
+</body>
+</html>
