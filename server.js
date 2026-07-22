@@ -16,6 +16,7 @@ import { pinVideo, followChannel, recordScan } from './save.js';
 import { crawlChannel, resolveChannelId } from './channel.js';
 import { createLaunch, listLaunches, getLaunch, updateLaunch,
          addLaunchChannel, removeLaunchChannel, deleteLaunch } from './launches.js';
+import { analyzeLaunch } from './launch-analyze.js';
 import { saveChannelCrawl } from './save-target.js';
 import { detectBreakouts } from './breakout.js';
 import { videoHistory, channelHistory, targetChannelHistory, sparklines } from './history.js';
@@ -912,6 +913,27 @@ app.delete('/api/launches/:id/channels/:channelId', async (req, res) => {
   } catch (err) {
     console.error('💥 DELETE /api/launches/channels :', err.message);
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Lance l'analyse d'un lancement : crawls nécessaires + sélection IA d'une vague.
+// Synchrone — peut prendre 1 à 3 minutes si des crawls sont nécessaires.
+app.post('/api/launches/:id/analyze', async (req, res) => {
+  const batchSize = Math.min(Math.max(Number(req.body?.batchSize) || 20, 3), 40);
+
+  try {
+    console.log(`🧠 Analyse du lancement ${req.params.id} (vague de ${batchSize})`);
+    const out = await analyzeLaunch(Number(req.params.id), {
+      batchSize,
+      readQuota,
+      addQuota,
+      quotaLimit: QUOTA_LIMIT,
+    });
+    console.log(`✅ Vague ${out.batch} : ${out.picksInserted} picks (${out.candidates} candidats)`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 /api/launches/analyze :', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
