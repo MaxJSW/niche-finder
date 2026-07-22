@@ -58,8 +58,8 @@
           <option value="titles">Titres complets</option>
         </select>
         <select id="count" class="selbox" title="Nombre de requêtes présélectionnées">
-          <option value="3">3 présélectionnées</option>
-          <option value="5" selected>5 présélectionnées</option>
+          <option value="3" selected>3 présélectionnées</option>
+          <option value="5">5 présélectionnées</option>
           <option value="8">8 présélectionnées</option>
         </select>
         <button class="go" id="genBtn">Proposer les requêtes</button>
@@ -121,6 +121,7 @@
     let POOL = [];           // requêtes candidates, tous modes confondus
     let RESULTS = null;      // sortie de /api/competitors/find
     let LINKED = new Set();  // concurrents déjà liés à CURRENT
+    let LAST_MODE = "segments";  // mode de la dernière génération (pilote minQueryCount)
 
     // --- Chargement initial ---
 
@@ -195,6 +196,7 @@
         });
         const json = await res.json();
         if (!res.ok) { alert(json.error || "Erreur"); return; }
+        LAST_MODE = json.mode || mode;   // le serveur confirme le mode appliqué
 
         // Première génération : on garde la présélection du serveur.
         // Génération suivante (autre mode) : tout arrive décoché, pour ne pas
@@ -266,7 +268,10 @@
     async function runSearch() {
       const queries = POOL.filter(q => q.selected).map(q => q.query);
       if (!queries.length || !CURRENT) return;
-      if (queries.length > 10) { alert("Maximum 10 requêtes par lancement."); return; }
+      if (queries.length > 3) {
+        alert(`Tu as coché ${queries.length} requêtes. En mode fragments, lance-en 3 au maximum : au-delà, la recherche se disperse et rate les bonnes chaînes. Décoche-en ${queries.length - 3}.`);
+        return;
+      }
 
       const btn = document.getElementById("runBtn");
       btn.disabled = true;
@@ -277,7 +282,13 @@
         const res = await fetch("/api/competitors/find", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ channelId: CURRENT, queries }),
+          body: JSON.stringify({
+            channelId: CURRENT,
+            queries,
+            // Segments = sujets distincts : une seule apparition suffit.
+            // Titres = même créneau : on exige la co-occurrence.
+            minQueryCount: LAST_MODE === "segments" ? 1 : 2,
+          }),
         });
         const json = await res.json();
         if (!res.ok) { alert(json.error || "Erreur"); return; }
@@ -302,10 +313,12 @@
 
       document.getElementById("rstats").innerHTML = `
         <span><b>${r.competitors.length}</b> retenues</span>
-        <span><b>${r.rejectedSingle}</b> écartées (1 seule requête)</span>
-        <span><b>${r.rejectedShorts}</b> écartées (chaînes à Shorts)</span>
-        <span><b>${r.inspectionsDone ?? 0}</b> inspectées en détail</span>
-        <span>quota consommé : <b>${r.quotaUsed} u</b></span>`;
+        <span><b>${r.rejectedSingle}</b> sous le seuil de requêtes</span>
+        <span><b>${r.rejectedShorts}</b> chaînes à Shorts</span>
+        <span><b>${r.rejectedFilters ?? 0}</b> hors filtres (taille / âge / ratio)</span>
+        <span><b>${r.notInspected ?? 0}</b> non inspectées (budget)</span>
+        <span><b>${r.inspectionsDone ?? 0}</b> inspectées</span>
+        <span>quota : <b>${r.quotaUsed} u</b></span>`;
 
       const total = r.queriesUsed.length;
       const box = document.getElementById("rlist");

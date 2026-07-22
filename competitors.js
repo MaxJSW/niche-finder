@@ -519,6 +519,11 @@ export async function findCompetitors(channelId, options = {}) {
     maxAgeMonths = 60,
     maxLongVideos = 80,
     minRatio = 1,
+    // Nombre minimum de requêtes distinctes où la chaîne apparaît. La co-occurrence
+    // n'a de sens que si les requêtes visent le même créneau ; en mode segments,
+    // où chaque requête est un sujet distinct, on abaisse à 1 : une chaîne qui a
+    // fait UNE vidéo sur le sujet cherché est déjà un concurrent pertinent.
+    minQueryCount = 2,
   } = options;
 
   if (!Array.isArray(queries) || !queries.length) {
@@ -560,9 +565,10 @@ export async function findCompetitors(channelId, options = {}) {
     }
   }
 
- // Filtre 1 : une seule apparition ne prouve rien. On écarte avant de payer l'enrichissement.
-  const MIN_QUERY_COUNT = 2;
-  const retained = [...agg.values()].filter(e => e.queries.length >= MIN_QUERY_COUNT);
+ // Filtre 1 : en dessous du seuil, on écarte avant de payer l'enrichissement.
+  // Seuil à 2 quand les requêtes partagent un créneau (mode titres), à 1 quand
+  // ce sont des sujets distincts (mode segments) — piloté par l'appelant.
+  const retained = [...agg.values()].filter(e => e.queries.length >= minQueryCount);
   const rejectedSingle = agg.size - retained.length;
 
   if (!retained.length) {

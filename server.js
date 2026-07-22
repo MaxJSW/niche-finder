@@ -602,6 +602,7 @@ app.post('/api/competitors/find', async (req, res) => {
 
   const regionCode = req.body?.regionCode || null;
   const relevanceLanguage = req.body?.relevanceLanguage || null;
+  const minQueryCount = Number(req.body?.minQueryCount) === 1 ? 1 : 2;
 
   const estimate = queries.length * 100 + 10;
   const q = await readQuota();
@@ -611,7 +612,7 @@ app.post('/api/competitors/find', async (req, res) => {
 
   try {
     console.log(`🔎 Concurrents de ${channelId} · ${queries.length} requête(s)`);
-    const out = await findCompetitors(channelId, { queries, regionCode, relevanceLanguage });
+    const out = await findCompetitors(channelId, { queries, regionCode, relevanceLanguage, minQueryCount });
 
     const quota = await addQuota(out.quotaUsed);
     console.log(`✅ ${out.candidatesFound} candidats · quota jour : ${quota.used}/${QUOTA_LIMIT}`);
