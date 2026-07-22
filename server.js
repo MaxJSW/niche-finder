@@ -18,6 +18,7 @@ import { saveChannelCrawl } from './save-target.js';
 import { detectBreakouts } from './breakout.js';
 import { videoHistory, channelHistory, targetChannelHistory, sparklines } from './history.js';
 import { listScans, keywordSummary, globalStats } from './scans-log.js';
+import { fetchTranscript, getTranscript } from './transcripts.js';
 import { listThemes, createTheme, updateTheme, deleteTheme,
          addItem, removeItem, moveItem, reorderItems } from './themes.js';
 import { themeContent, unclassified, themeBadges } from './themes-view.js';
@@ -739,6 +740,70 @@ app.post('/api/competitors/crawl', async (req, res) => {
     res.json({ candidates: candidates.length, crawled, skipped, failed, quota: { ...quota, limit: QUOTA_LIMIT } });
   } catch (err) {
     console.error('💥 /api/competitors/crawl :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ============================================================
+//  TRANSCRIPTIONS — récupération yt-dlp à la demande (gratuit côté quota YouTube)
+// ============================================================
+
+// Récupère et stocke la transcription d'une vidéo. Aucun coût de quota API
+// (yt-dlp, pas YouTube Data API), mais ~10-30 s d'exécution.
+app.post('/api/transcripts/fetch', async (req, res) => {
+  const videoId = (req.body?.videoId || '').trim();
+  const channelId = (req.body?.channelId || '').trim();
+  if (!videoId || !channelId) {
+    return res.status(400).json({ error: 'videoId et channelId requis.' });
+  }
+
+  try {
+    console.log(`📝 Transcription demandée : ${videoId}`);
+    const out = await fetchTranscript(videoId, channelId);
+
+    if (!out.ok) {
+      console.log(`⚠️  Pas de transcription pour ${videoId} (${out.reason})`);
+      return res.status(404).json({ error: `Aucune transcription disponible (${out.reason}).`, ...out });
+    }
+
+    console.log(`✅ Transcription ${videoId} : ${out.language}${out.isOriginal ? ' (originale)' : ' (traduction)'} · ${out.wordCount} mots`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 /api/transcripts/fetch :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Lit une transcription déjà en base. Gratuit.
+app.get('/api/transcripts/:videoId', async (req, res) => {
+  try {
+    const row = await getTranscript(req.params.videoId);
+    if (!row) return res.status(404).json({ error: 'Transcription introuvable.' });
+    res.json(row);
+  } catch (err) {
+    console.error('💥 GET /api/transcripts :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// État des transcriptions pour un lot de vidéos — pour afficher 📝 ou ✅ sur les boutons.
+app.post('/api/transcripts/status', async (req, res) => {
+  const videoIds = Array.isArray(req.body?.videoIds)
+    ? req.body.videoIds.map(v => String(v).trim()).filter(Boolean).slice(0, 500)
+    : [];
+  if (!videoIds.length) return res.status(400).json({ error: 'videoIds (tableau) requis.' });
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT video_id, language, is_original, word_count, fetched_at
+         FROM transcripts
+        WHERE video_id IN (?)`,
+      [videoIds]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('💥 /api/transcripts/status :', err.message);
     res.status(500).json({ error: err.message });
   }
 });
