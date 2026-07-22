@@ -13,7 +13,9 @@ import { linkCompetitor, unlinkCompetitor, listCompetitors, listAllLinks, listCr
 import { competitorsOverview } from './competitors-overview.js';
 import { addQuery, listQueries, updateQuery, deleteQuery, getResults, runQuery } from './queries.js';
 import { pinVideo, followChannel, recordScan } from './save.js';
-import { crawlChannel } from './channel.js';
+import { crawlChannel, resolveChannelId } from './channel.js';
+import { createLaunch, listLaunches, getLaunch, updateLaunch,
+         addLaunchChannel, removeLaunchChannel, deleteLaunch } from './launches.js';
 import { saveChannelCrawl } from './save-target.js';
 import { detectBreakouts } from './breakout.js';
 import { videoHistory, channelHistory, targetChannelHistory, sparklines } from './history.js';
@@ -805,6 +807,111 @@ app.post('/api/transcripts/status', async (req, res) => {
   } catch (err) {
     console.error('💥 /api/transcripts/status :', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+//  LANCEMENTS — projets de création de chaîne (module Lancements)
+// ============================================================
+
+// Crée un lancement (nom + seed + concurrents cochés + extras déjà résolus).
+app.post('/api/launches', async (req, res) => {
+  try {
+    const out = await createLaunch({
+      name: req.body?.name,
+      seedChannelId: req.body?.seedChannelId,
+      competitorIds: Array.isArray(req.body?.competitorIds) ? req.body.competitorIds : [],
+      extraIds: Array.isArray(req.body?.extraIds) ? req.body.extraIds : [],
+    });
+    console.log(`🚀 Lancement créé : "${out.name}" (${out.channels} chaînes)`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 POST /api/launches :', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Liste des lancements.
+app.get('/api/launches', async (req, res) => {
+  try {
+    res.json(await listLaunches());
+  } catch (err) {
+    console.error('💥 GET /api/launches :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Pré-remplissage du formulaire de création : concurrents déjà liés à un seed.
+// (Déclarée AVANT /api/launches/:id pour ne pas être capturée par elle.)
+app.get('/api/launches/setup/:seedChannelId', async (req, res) => {
+  try {
+    res.json(await listCompetitors(req.params.seedChannelId));
+  } catch (err) {
+    console.error('💥 /api/launches/setup :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Détail complet d'un lancement (groupe, picks par vague, bilans).
+app.get('/api/launches/:id', async (req, res) => {
+  try {
+    res.json(await getLaunch(Number(req.params.id)));
+  } catch (err) {
+    console.error('💥 GET /api/launches/:id :', err.message);
+    res.status(404).json({ error: err.message });
+  }
+});
+
+// Modifie nom / notes / own_channel_id / statut.
+app.patch('/api/launches/:id', async (req, res) => {
+  try {
+    res.json(await updateLaunch(Number(req.params.id), req.body || {}));
+  } catch (err) {
+    console.error('💥 PATCH /api/launches :', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Supprime un lancement (groupe, picks, bilans via CASCADE).
+app.delete('/api/launches/:id', async (req, res) => {
+  try {
+    const out = await deleteLaunch(Number(req.params.id));
+    console.log(`🗑️ Lancement supprimé : ${req.params.id}`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 DELETE /api/launches :', err.message);
+    res.status(404).json({ error: err.message });
+  }
+});
+
+// Ajoute une chaîne au groupe — accepte ID UC..., @handle ou URL (résolution auto, 0-1u).
+app.post('/api/launches/:id/channels', async (req, res) => {
+  const input = (req.body?.channel || '').trim();
+  const role = req.body?.role === 'extra' ? 'extra' : 'competitor';
+  if (!input) return res.status(400).json({ error: 'Champ "channel" requis (ID, @handle ou URL).' });
+
+  try {
+    const { channelId, quotaUsed } = await resolveChannelId(input);
+    if (quotaUsed) await addQuota(quotaUsed);
+
+    const out = await addLaunchChannel(Number(req.params.id), channelId, role);
+    console.log(`➕ Chaîne ajoutée au lancement ${req.params.id} : ${channelId} (${role})`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 POST /api/launches/channels :', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Retire une chaîne du groupe (le seed est protégé côté module).
+app.delete('/api/launches/:id/channels/:channelId', async (req, res) => {
+  try {
+    const out = await removeLaunchChannel(Number(req.params.id), req.params.channelId);
+    console.log(`➖ Chaîne retirée du lancement ${req.params.id} : ${req.params.channelId}`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 DELETE /api/launches/channels :', err.message);
+    res.status(400).json({ error: err.message });
   }
 });
 

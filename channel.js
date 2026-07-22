@@ -40,6 +40,31 @@ async function ytGet(endpoint, params) {
   return res.json();
 }
 
+// 1u max — Résout une entrée libre (ID UC..., @handle, ou URL de chaîne) en channelId.
+// Gratuit si l'entrée est déjà un ID valide (aucun appel API).
+async function resolveChannelId(input) {
+  const raw = String(input || '').trim();
+  if (!raw) throw new Error('Entrée vide.');
+
+  // Déjà un ID de chaîne ? (UC + 22 caractères)
+  if (/^UC[\w-]{22}$/.test(raw)) return { channelId: raw, quotaUsed: 0 };
+
+  // Extrait un @handle : "@MaChaine", "youtube.com/@MaChaine", avec ou sans https.
+  const m = raw.match(/@([A-Za-z0-9._-]+)/);
+  if (!m) {
+    throw new Error(`Entrée non reconnue : "${raw}" (attendu : ID UC..., @handle ou URL de chaîne).`);
+  }
+
+  const data = await ytGet('channels', {
+    part: 'id',
+    forHandle: `@${m[1]}`,
+  });
+  const c = data.items?.[0];
+  if (!c) throw new Error(`Chaîne introuvable pour le handle @${m[1]}.`);
+
+  return { channelId: c.id, quotaUsed: 1 };
+}
+
 // 1u — Métadonnées de la chaîne + ID de sa playlist "uploads".
 async function fetchChannelMeta(channelId) {
   const data = await ytGet('channels', {
@@ -145,4 +170,4 @@ async function crawlChannel(channelId, options = {}) {
   };
 }
 
-export { crawlChannel, fetchChannelMeta };
+export { crawlChannel, fetchChannelMeta, resolveChannelId };
