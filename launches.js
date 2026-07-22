@@ -115,7 +115,7 @@ async function getLaunch(id) {
 
 // Modifie un lancement — liste blanche de champs autorisés.
 async function updateLaunch(id, fields = {}) {
-  const allowed = ['name', 'notes', 'own_channel_id', 'status'];
+  const allowed = ['name', 'notes', 'own_channel_id', 'status', 'target_language'];
   const sets = [];
   const vals = [];
   for (const k of allowed) {

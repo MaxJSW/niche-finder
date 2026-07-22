@@ -115,7 +115,7 @@ function candidateLines(candidates, idMap) {
   }).join('\n');
 }
 
-async function pickWithClaude({ candidates, batchSize, batch, donePicks, rejectedPicks, lastReport, seedTitle }) {
+async function pickWithClaude({ candidates, batchSize, batch, donePicks, rejectedPicks, lastReport, seedTitle, targetLanguage }) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY manquante dans .env');
   const client = new Anthropic({ apiKey });
@@ -140,6 +140,8 @@ async function pickWithClaude({ candidates, batchSize, batch, donePicks, rejecte
   }
 
   const prompt = `Tu aides un créateur solo à lancer une chaîne YouTube automatisée en t'inspirant d'un groupe de chaînes modèles (chaîne principale : "${seedTitle}").
+
+La chaîne à lancer sera en langue "${targetLanguage}" — les chaînes modèles peuvent être dans une autre langue. Prends-le en compte : un sujet déjà saturé en ${targetLanguage} vaut moins qu'un sujet validé ailleurs mais peu exploité en ${targetLanguage} ; et les angles que tu proposes doivent être pensés pour le public ${targetLanguage}.
 
 Voici les vidéos candidates du groupe, avec leurs métriques (ratio = vues / médiane de leur chaîne, donc la sur-performance) :
 
@@ -251,6 +253,7 @@ async function analyzeLaunch(launchId, { batchSize = 20, readQuota, addQuota, qu
     const picks = await pickWithClaude({
       candidates, batchSize, batch, donePicks, rejectedPicks,
       lastReport: report?.content || null, seedTitle,
+      targetLanguage: launch.target_language || 'en',
     });
 
     // 4. Insertion en transaction.

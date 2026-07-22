@@ -17,6 +17,7 @@ import { crawlChannel, resolveChannelId } from './channel.js';
 import { createLaunch, listLaunches, getLaunch, updateLaunch,
          addLaunchChannel, removeLaunchChannel, deleteLaunch } from './launches.js';
 import { analyzeLaunch } from './launch-analyze.js';
+import { fetchMaterials } from './launch-materials.js';
 import { saveChannelCrawl } from './save-target.js';
 import { detectBreakouts } from './breakout.js';
 import { videoHistory, channelHistory, targetChannelHistory, sparklines } from './history.js';
@@ -933,6 +934,22 @@ app.post('/api/launches/:id/analyze', async (req, res) => {
     res.json(out);
   } catch (err) {
     console.error('💥 /api/launches/analyze :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Récupère le matériel des picks (transcriptions + miniatures physiques).
+// Synchrone — ~15 s par vidéo non transcrite. { batch: N } limite à une vague.
+app.post('/api/launches/:id/materials', async (req, res) => {
+  const batch = Number(req.body?.batch) || null;
+
+  try {
+    console.log(`📦 Matériel du lancement ${req.params.id}${batch ? ` (vague ${batch})` : ''}`);
+    const out = await fetchMaterials(Number(req.params.id), { batch });
+    console.log(`✅ ${out.summary.transcriptsOk}/${out.summary.total} transcriptions · ${out.summary.thumbnailsOk}/${out.summary.total} miniatures`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 /api/launches/materials :', err.message);
     res.status(500).json({ error: err.message });
   }
 });
