@@ -15,7 +15,8 @@ import { addQuery, listQueries, updateQuery, deleteQuery, getResults, runQuery }
 import { pinVideo, followChannel, recordScan } from './save.js';
 import { crawlChannel, resolveChannelId } from './channel.js';
 import { createLaunch, listLaunches, getLaunch, updateLaunch,
-         addLaunchChannel, removeLaunchChannel, deleteLaunch, updatePickStatus } from './launches.js';
+         addLaunchChannel, removeLaunchChannel, deleteLaunch,
+         updatePickStatus, reorderPicks } from './launches.js';
 import { analyzeLaunch } from './launch-analyze.js';
 import { generateIdentity } from './launch-identity.js';
 import { generateScript, getLatestScript, setScriptStatus } from './launch-script.js';
@@ -1008,6 +1009,18 @@ app.patch('/api/launches/scripts/:scriptId', async (req, res) => {
     res.json(out);
   } catch (err) {
     console.error('💥 PATCH /api/launches/scripts :', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Réordonne la file de production d'un lancement. Gratuit.
+app.post('/api/launches/:id/order', async (req, res) => {
+  const pickIds = Array.isArray(req.body?.pickIds) ? req.body.pickIds : [];
+  try {
+    const out = await reorderPicks(Number(req.params.id), pickIds);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 /api/launches/order :', err.message);
     res.status(400).json({ error: err.message });
   }
 });

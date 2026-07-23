@@ -54,6 +54,15 @@
     .copy { background: none; border: 1px solid var(--border); color: var(--muted); cursor: pointer; border-radius: 7px; padding: 4px 10px; font-size: 0.74rem; white-space: nowrap; margin-left: auto; }
     .copy:hover { color: var(--text); border-color: var(--muted); }
     .copy.ok { color: var(--green); border-color: var(--green); }
+    /* File de production */
+    .qrow { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 8px 12px; margin-bottom: 7px; cursor: grab; font-size: 0.84rem; }
+    .qrow:active { cursor: grabbing; }
+    .qrow:hover { border-color: var(--muted); }
+    .qnum { color: var(--muted); font-size: 0.74rem; min-width: 22px; }
+    .qtitle { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .qmeta { color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
+    .sortable-ghost { opacity: 0.35; }
+
     /* Modale script */
     .stats { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.76rem; color: var(--muted); margin-bottom: 12px; }
     .segblk { border-left: 2px solid var(--border); padding-left: 12px; margin-bottom: 16px; }
@@ -79,6 +88,7 @@
     </main>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
   <script>
     const $ = id => document.getElementById(id);
     function esc(t) { const d = document.createElement("div"); d.textContent = t || ""; return d.innerHTML; }
@@ -229,6 +239,8 @@
           </div>
         </div>
 
+        ${queueSection()}
+
         ${batches.map(b => `
           <div class="sect">
             <div class="batchhead" style="border-top:none">Vague ${b} — ${D.picks.filter(p => p.batch === b).length} picks</div>
@@ -253,6 +265,8 @@
             </table></div>
           </div>`).join("")}
         ${!batches.length ? '<div class="empty">Pas encore de picks — lance l\'analyse.</div>' : ""}`;
+
+      mountQueue();
     }
 
     async function saveOwn() {
@@ -455,6 +469,71 @@
           </div>
         </div>`;
       document.body.appendChild(bg);
+    }
+
+    // ==================== FILE DE PRODUCTION ====================
+
+    let QSORT = null;
+
+    // Picks kept + done, ordre manuel d'abord, puis les non ordonnés.
+    function queuePicks() {
+      return D.picks
+        .filter(p => ["kept", "done"].includes(p.status))
+        .sort((a, b) => {
+          const ao = a.publish_order, bo = b.publish_order;
+          if (ao != null && bo != null) return ao - bo;
+          if (ao != null) return -1;
+          if (bo != null) return 1;
+          return a.batch - b.batch || a.rank_position - b.rank_position;
+        });
+    }
+
+    function queueSection() {
+      const list = queuePicks();
+      return `
+        <div class="sect">
+          <div class="shead"><h2>File de production (${list.length})</h2>
+            <span style="margin-left:auto;color:var(--muted);font-size:0.75rem">glisse pour réordonner</span>
+          </div>
+          <div class="sbody">
+            <div id="queue">
+              ${list.length ? list.map((p, i) => `
+                <div class="qrow" data-pick="${p.id}">
+                  <span class="qnum">${i + 1}.</span>
+                  <span class="qtitle">${esc(p.title || p.video_id)}</span>
+                  <span class="qmeta">${p.script_id ? "📄 " + p.script_status : "✍️ pas de script"}</span>
+                  <span class="badge ${p.status === "done" ? "ready" : ""}">${p.status}</span>
+                </div>`).join("")
+              : '<div class="empty">Passe des picks en « kept » pour les voir ici.</div>'}
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function mountQueue() {
+      if (QSORT) { QSORT.destroy(); QSORT = null; }
+      const el = $("queue");
+      if (!el || !el.querySelector(".qrow")) return;
+      QSORT = new Sortable(el, {
+        animation: 150,
+        ghostClass: "sortable-ghost",
+        onUpdate: saveQueueOrder,
+      });
+    }
+
+    // Renvoie la liste complète ordonnée au serveur.
+    async function saveQueueOrder() {
+      const pickIds = [...$("queue").querySelectorAll(".qrow")].map(el => Number(el.dataset.pick));
+      try {
+        await api(`/api/launches/${launchId}/order`, { method: "POST",
+          body: JSON.stringify({ pickIds }) });
+        // Renumérote sans recharger toute la page.
+        [...$("queue").querySelectorAll(".qnum")].forEach((el, i) => { el.textContent = (i + 1) + "."; });
+        D.picks.forEach(p => {
+          const i = pickIds.indexOf(p.id);
+          p.publish_order = i === -1 ? null : i;
+        });
+      } catch (err) { alert(err.message); loadDetail(); }
     }
 
     // ==================== SCRIPT (modale) ====================

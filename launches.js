@@ -91,7 +91,7 @@ async function getLaunch(id) {
   const [picks] = await pool.query(`
     SELECT
       p.id, p.batch, p.video_id, p.channel_id, p.rank_position,
-      p.reason, p.angle, p.status,
+      p.reason, p.angle, p.status, p.publish_order,
       v.title, v.thumbnail, v.duration_seconds, v.published_at,
       tc.channel_title,
       (t.video_id IS NOT NULL) AS has_transcript,
@@ -181,6 +181,39 @@ async function updatePickStatus(pickId, status) {
   return { pickId: Number(pickId), status };
 }
 
+// Réordonne la file de production d'un lancement (après glisser-déposer).
+// pickIds : tableau d'ids dans l'ordre voulu. Les picks absents de la liste
+// sortent de la file (publish_order remis à NULL).
+async function reorderPicks(launchId, pickIds = []) {
+  const ids = pickIds.map(Number).filter(Number.isFinite);
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // Tout sortir de la file, puis replacer ceux qui y sont.
+    await conn.query(
+      'UPDATE launch_picks SET publish_order = NULL WHERE launch_id = ?',
+      [Number(launchId)]
+    );
+
+    for (let i = 0; i < ids.length; i++) {
+      await conn.query(
+        'UPDATE launch_picks SET publish_order = ? WHERE id = ? AND launch_id = ?',
+        [i, ids[i], Number(launchId)]
+      );
+    }
+
+    await conn.commit();
+    return { launchId: Number(launchId), ordered: ids.length };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
 // Supprime un lancement (picks, groupe et bilans via CASCADE).
 async function deleteLaunch(id) {
   const [r] = await pool.query('DELETE FROM launches WHERE id = ?', [id]);
@@ -189,4 +222,5 @@ async function deleteLaunch(id) {
 }
 
 export { createLaunch, listLaunches, getLaunch, updateLaunch,
-         addLaunchChannel, removeLaunchChannel, deleteLaunch, updatePickStatus };
+         addLaunchChannel, removeLaunchChannel, deleteLaunch,
+         updatePickStatus, reorderPicks };
