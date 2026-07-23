@@ -86,18 +86,29 @@ async function getLaunch(id) {
     ORDER BY FIELD(lc.role, 'seed', 'competitor', 'extra'), tc.channel_title
   `, [id]);
 
-  // Les picks, avec les métadonnées vidéo et l'état de transcription.
+  // Les picks, avec les métadonnées vidéo, l'état de transcription
+  // et le script le plus récent s'il existe.
   const [picks] = await pool.query(`
     SELECT
       p.id, p.batch, p.video_id, p.channel_id, p.rank_position,
       p.reason, p.angle, p.status,
       v.title, v.thumbnail, v.duration_seconds, v.published_at,
       tc.channel_title,
-      (t.video_id IS NOT NULL) AS has_transcript
+      (t.video_id IS NOT NULL) AS has_transcript,
+      ls.id         AS script_id,
+      ls.status     AS script_status,
+      ls.word_count AS script_words,
+      ls.created_at AS script_created_at
     FROM launch_picks p
     LEFT JOIN target_videos v ON v.video_id = p.video_id
     LEFT JOIN target_channels tc ON tc.channel_id = p.channel_id
     LEFT JOIN transcripts t ON t.video_id = p.video_id
+    LEFT JOIN scripts ls ON ls.id = (
+      SELECT id FROM scripts
+      WHERE pick_id = p.id
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    )
     WHERE p.launch_id = ?
     ORDER BY p.batch, p.rank_position
   `, [id]);

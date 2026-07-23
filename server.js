@@ -18,6 +18,7 @@ import { createLaunch, listLaunches, getLaunch, updateLaunch,
          addLaunchChannel, removeLaunchChannel, deleteLaunch, updatePickStatus } from './launches.js';
 import { analyzeLaunch } from './launch-analyze.js';
 import { generateIdentity } from './launch-identity.js';
+import { generateScript, getLatestScript, setScriptStatus } from './launch-script.js';
 import { fetchMaterials } from './launch-materials.js';
 import { saveChannelCrawl } from './save-target.js';
 import { detectBreakouts } from './breakout.js';
@@ -967,6 +968,47 @@ app.post('/api/launches/:id/identity', async (req, res) => {
   } catch (err) {
     console.error('💥 /api/launches/identity :', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Génère le script narratif d'un pick (transcription + angle + identité de chaîne).
+// Synchrone et LONG : deux passes, ~10-14 appels Claude, compter 1 à 3 minutes.
+// Aucun quota YouTube. Régénérable : chaque appel insère une nouvelle ligne dans scripts.
+app.post('/api/launches/picks/:pickId/script', async (req, res) => {
+  try {
+    console.log(`✍️  Script — pick ${req.params.pickId}`);
+    const out = await generateScript(Number(req.params.pickId));
+    console.log(`✅ Script ${out.scriptId} : ${out.wordCount} mots · ${out.calls} appels · ${out.usage.input}+${out.usage.output} tokens`);
+    if (out.warnings.length) out.warnings.forEach(w => console.log(`   ⚠️  ${w}`));
+    res.json(out);
+  } catch (err) {
+    console.error('💥 /api/launches/picks/script :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Relit le dernier script d'un pick. Gratuit — aucun appel IA.
+app.get('/api/launches/picks/:pickId/script', async (req, res) => {
+  try {
+    const row = await getLatestScript(Number(req.params.pickId));
+    if (!row) return res.status(404).json({ error: 'Aucun script pour ce pick.' });
+    res.json(row);
+  } catch (err) {
+    console.error('💥 GET /api/launches/picks/script :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bascule le statut d'un script (draft / validated).
+// Le futur module « découpage en plans » ne traitera que les scripts validated.
+app.patch('/api/launches/scripts/:scriptId', async (req, res) => {
+  try {
+    const out = await setScriptStatus(Number(req.params.scriptId), req.body?.status);
+    console.log(`🏷️  Script ${req.params.scriptId} → ${out.status}`);
+    res.json(out);
+  } catch (err) {
+    console.error('💥 PATCH /api/launches/scripts :', err.message);
+    res.status(400).json({ error: err.message });
   }
 });
 

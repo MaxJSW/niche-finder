@@ -54,6 +54,17 @@
     .copy { background: none; border: 1px solid var(--border); color: var(--muted); cursor: pointer; border-radius: 7px; padding: 4px 10px; font-size: 0.74rem; white-space: nowrap; margin-left: auto; }
     .copy:hover { color: var(--text); border-color: var(--muted); }
     .copy.ok { color: var(--green); border-color: var(--green); }
+    /* Modale script */
+    .stats { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.76rem; color: var(--muted); margin-bottom: 12px; }
+    .segblk { border-left: 2px solid var(--border); padding-left: 12px; margin-bottom: 16px; }
+    .segblk .sh { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+    .segblk .sh b { font-size: 0.86rem; }
+    .segblk .nt { color: var(--muted); font-size: 0.74rem; line-height: 1.45; margin-bottom: 6px; }
+    .segblk .nr { font-size: 0.88rem; line-height: 1.62; white-space: pre-wrap; }
+    .beat { margin-top: 8px; background: var(--bg); border: 1px dashed var(--border); border-radius: 8px; padding: 6px 10px; font-size: 0.76rem; color: var(--muted); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .xbtn.spin { display: inline-block; animation: spin 1.2s linear infinite; }
+
     /* Modale scrollable mais barre masquée */
     .modal-bg .modal { scrollbar-width: none; -ms-overflow-style: none; }
     .modal-bg .modal::-webkit-scrollbar { width: 0; height: 0; }
@@ -222,7 +233,7 @@
           <div class="sect">
             <div class="batchhead" style="border-top:none">Vague ${b} — ${D.picks.filter(p => p.batch === b).length} picks</div>
             <div class="tablecard"><table>
-              <thead><tr><th style="width:44px">#</th><th style="width:116px"></th><th>Vidéo</th><th style="width:110px">Statut</th><th style="width:36px"></th></tr></thead>
+              <thead><tr><th style="width:44px">#</th><th style="width:116px"></th><th>Vidéo</th><th style="width:110px">Statut</th><th style="width:70px"></th></tr></thead><thead><tr><th style="width:44px">#</th><th style="width:116px"></th><th>Vidéo</th><th style="width:110px">Statut</th><th style="width:70px"></th></tr></thead>
               <tbody>
                 ${D.picks.filter(p => p.batch === b).map(p => `
                   <tr class="pickrow">
@@ -234,7 +245,7 @@
                       <div class="pick-why"><b>Pourquoi :</b> ${esc(p.reason || "—")}<br><b>Angle :</b> ${esc(p.angle || "—")}</div>
                     </td>
                     <td><span class="stbadge st-${p.status}" onclick="cycleStatus(${p.id}, '${p.status}')">${p.status}</span></td>
-                    <td>${p.status !== "rejected"
+                    <td style="white-space:nowrap">${scriptBtn(p)}${p.status !== "rejected"
                           ? `<button class="xbtn" title="Rejeter" onclick="setStatus(${p.id}, 'rejected')">✕</button>`
                           : `<button class="xbtn" title="Restaurer" onclick="setStatus(${p.id}, 'proposed')">↩</button>`}</td>
                   </tr>`).join("")}
@@ -440,6 +451,152 @@
 
           <div style="display:flex;gap:8px;margin-top:16px">
             <button class="btn sec" onclick="regenFromModal(this)">🔄 Régénérer</button>
+            <button class="btn sec" onclick="closeModal()">Fermer</button>
+          </div>
+        </div>`;
+      document.body.appendChild(bg);
+    }
+
+    // ==================== SCRIPT (modale) ====================
+
+    let CURR_SCRIPT = null;   // { id, content, status, pickId }
+
+    // Bouton d'action sur la ligne du pick : ✍️ à générer, 📄 déjà généré.
+    // Affiché uniquement sur les picks kept et done.
+    function scriptBtn(p) {
+      if (!["kept", "done"].includes(p.status)) return "";
+      const has = Boolean(p.script_id);
+      const tip = has
+        ? "Script " + p.script_status + " · " + p.script_words + " mots"
+        : "Générer le script";
+      return '<button class="xbtn" id="sbtn-' + p.id + '" title="' + tip + '" onclick="openScript(' + p.id + ')">'
+           + (has ? "📄" : "✍️") + "</button>";
+    }
+
+    // Ouvre le script existant (gratuit) ou lance la génération.
+    async function openScript(pickId) {
+      const pick = D.picks.find(p => p.id === pickId);
+      if (pick && pick.script_id) {
+        try {
+          const row = await api(`/api/launches/picks/${pickId}/script`);
+          renderScriptModal({ ...row, pickId });
+          return;
+        } catch { /* introuvable -> on génère */ }
+      }
+      genScript(pickId);
+    }
+
+    async function genScript(pickId) {
+      const btn = $("sbtn-" + pickId);
+      if (btn) { btn.disabled = true; btn.textContent = "⏳"; btn.classList.add("spin"); }
+      $("busy").textContent = "✍️ Génération du script (IA, 1 à 3 minutes)…";
+      try {
+        const out = await api(`/api/launches/picks/${pickId}/script`, { method: "POST", body: JSON.stringify({}) });
+        $("busy").textContent = `✅ Script généré : ${out.wordCount} mots.`;
+        renderScriptModal({ id: out.scriptId, content: out.script, status: "draft",
+                            word_count: out.wordCount, created_at: null, pickId });
+        loadDetail();
+      } catch (err) {
+        $("busy").textContent = "";
+        if (btn) { btn.disabled = false; btn.textContent = "✍️"; btn.classList.remove("spin"); }
+        alert(err.message);
+      }
+    }
+
+    async function regenScript(btn) {
+      const pickId = CURR_SCRIPT.pickId;
+      btn.disabled = true;
+      btn.textContent = "⏳ Génération…";
+      try {
+        const out = await api(`/api/launches/picks/${pickId}/script`, { method: "POST", body: JSON.stringify({}) });
+        renderScriptModal({ id: out.scriptId, content: out.script, status: "draft",
+                            word_count: out.wordCount, created_at: null, pickId });
+        loadDetail();
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = "🔄 Régénérer";
+      }
+    }
+
+    // Bascule draft <-> validated. Seuls les validated seront découpés en plans.
+    async function toggleScriptStatus(btn) {
+      const next = CURR_SCRIPT.status === "validated" ? "draft" : "validated";
+      btn.disabled = true;
+      try {
+        await api(`/api/launches/scripts/${CURR_SCRIPT.id}`, { method: "PATCH",
+          body: JSON.stringify({ status: next }) });
+        renderScriptModal({ ...CURR_SCRIPT, status: next });
+        loadDetail();
+      } catch (err) { alert(err.message); btn.disabled = false; }
+    }
+
+    // Narration complète, prête pour la voix off (sans headings ni notes).
+    function fullNarration(c) {
+      return [c.hook, ...(c.segments || []).map(s => s.narration), c.outro]
+        .filter(Boolean).join("\n\n");
+    }
+    function copyScript(btn) { copyText(fullNarration(CURR_SCRIPT.content), btn); }
+    function copySeg(i, btn) { copyText((CURR_SCRIPT.content.segments || [])[i].narration, btn); }
+    function copyTitle(btn) { copyText(CURR_SCRIPT.content.title || "", btn); }
+
+    const BEAT_ICON = { musique: "🎵", action: "⚡", contemplation: "🌙" };
+
+    function renderScriptModal(row) {
+      closeModal();
+      CURR_SCRIPT = row;
+      const c = row.content || {};
+      const segs = Array.isArray(c.segments) ? c.segments : [];
+      const validated = row.status === "validated";
+
+      const bg = document.createElement("div");
+      bg.className = "modal-bg";
+      bg.onclick = e => { if (e.target === bg) closeModal(); };
+      bg.innerHTML = `
+        <div class="modal">
+          <button class="mclose" onclick="closeModal()">✕</button>
+          <h3>✍️ Script</h3>
+          <div class="msub">${row.created_at ? dateTxt(row.created_at) : "à l'instant"} · source : ${esc(c.source_video_title || c.source_video_id || "—")}</div>
+
+          <div class="stats">
+            <span>${row.word_count} mots</span>
+            <span>~${c.estimated_duration_min || "?"} min (cible ${c.target_duration_min || "?"})</span>
+            <span>${c.beat_count || 0} respiration${(c.beat_count || 0) > 1 ? "s" : ""} · ${c.beat_seconds || 0} s</span>
+            <span class="badge ${validated ? "ready" : "draft"}">${row.status}</span>
+          </div>
+
+          <div class="bocard"><div class="idsec">
+            <div class="idhead"><h4>Titre</h4><button class="copy" onclick="copyTitle(this)">📋 Copier</button></div>
+            <p><b>${esc(c.title || "—")}</b></p>
+          </div></div>
+
+          <div class="bocard"><div class="idsec">
+            <div class="idhead"><h4>Accroche</h4></div>
+            <p class="segblk nr" style="border:none;padding:0">${esc(c.hook || "—")}</p>
+          </div></div>
+
+          <div class="bocard"><div class="idsec">
+            <div class="idhead"><h4>Segments (${segs.length})</h4></div>
+            ${segs.map((s, i) => `
+              <div class="segblk">
+                <div class="sh"><b>${i + 1}. ${esc(s.heading || "")}</b>
+                  <span style="color:var(--muted);font-size:0.72rem">${s.word_count || 0} mots</span>
+                  <button class="copy" onclick="copySeg(${i}, this)">📋</button></div>
+                <div class="nt">${esc(s.note || "")}</div>
+                <div class="nr">${esc(s.narration || "")}</div>
+                ${s.beat ? `<div class="beat">${BEAT_ICON[s.beat.type] || "⏸"} ${esc(s.beat.type)} · ${s.beat.duration_s} s — ${esc(s.beat.intent || "")}</div>` : ""}
+              </div>`).join("")}
+          </div></div>
+
+          <div class="bocard"><div class="idsec">
+            <div class="idhead"><h4>Conclusion</h4></div>
+            <p class="segblk nr" style="border:none;padding:0">${esc(c.outro || "—")}</p>
+          </div></div>
+
+          <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+            <button class="btn" onclick="copyScript(this)">📋 Copier la narration complète</button>
+            <button class="btn sec" onclick="toggleScriptStatus(this)">${validated ? "↩ Repasser en brouillon" : "✅ Valider"}</button>
+            <button class="btn sec" onclick="regenScript(this)">🔄 Régénérer</button>
             <button class="btn sec" onclick="closeModal()">Fermer</button>
           </div>
         </div>`;
